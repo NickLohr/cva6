@@ -46,34 +46,48 @@ module tag_cmp #(
     output l_be_ECC_t                               be_o, // TODO next
     input  l_data_ECC_t [DCACHE_SET_ASSOC-1:0]  rdata_i
 );
-l_data_t wdata;
+
+  l_data_t wdata;
+  l_be_t be;
   logic [DCACHE_SET_ASSOC-1:0][1:0] err;
    
+  
+eb6715 (Encoding seems to work kinda, decoding doesn't, current guess, the issue is in be)
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
     assign rdata_o[i].valid = rdata_i[i].valid;
     assign rdata_o[i].tag = rdata_i[i].tag;
     assign rdata_o[i].dirty = rdata_i[i].dirty;
+
+    assign rdata_o[i].data = rdata_i[i].data[ariane_pkg::DCACHE_LINE_WIDTH-1:0];
+    /* No correction, just rewiring
+
     hsiao_ecc_dec #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
     ) i_hsio_ecc_dec_rdata (
       .in(rdata_i[i].data),
       .out(rdata_o[i].data),
       .syndrome_o(),
       .err_o(err[i]) // TODO error handling
-    );
 
+  
+  
+
+    );*/
   end
-
-  
-  
+ 
   hsiao_ecc_enc #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
   ) i_hsio_ecc_enc_wdata (
     .in(wdata.data),
     .out(wdata_o.data)
-  );
-  assign wdata_o.valid = wdata.valid;
+
+  );  assign wdata_o.valid = wdata.valid;
   assign wdata_o.tag = wdata.tag;
   assign wdata_o.dirty = wdata.dirty;
 
+
+  assign be_o.vldrty = be.vldrty;
+  assign be_o.data[(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0] = be.data;
+  assign be_o.data[(ariane_pkg::DCACHE_LINE_ECC_WIDTH+7)/8-1:(ariane_pkg::DCACHE_LINE_WIDTH+7)/8] = '1;
+  assign be_o.tag = be.tag;
 
   // one hot encoded
   logic [NR_PORTS-1:0] id_d, id_q;
@@ -95,7 +109,7 @@ l_data_t wdata;
     wdata = '0;
     req_o   = '0;
     addr_o  = '0;
-    be_o    = '0;
+    be    = '0;
     we_o    = '0;
     // Request Side
     // priority select
@@ -105,7 +119,7 @@ l_data_t wdata;
       id_d     = (1'b1 << i);
       gnt_o[i] = 1'b1;
       addr_o   = addr_i[i];
-      be_o[(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0]     = be_i[i];
+      be      = be_i[i];
       we_o     = we_i[i];
       wdata    = wdata_i[i];
 
