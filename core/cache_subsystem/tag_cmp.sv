@@ -20,7 +20,9 @@ module tag_cmp #(
     parameter int unsigned           NR_PORTS         = 3,
     parameter int unsigned           ADDR_WIDTH       = 64,
     parameter type                   l_data_t         = std_cache_pkg::cache_line_t,
+    parameter type                   l_data_ECC_t     = std_cache_pkg::cache_line_ECC_t,
     parameter type                   l_be_t           = std_cache_pkg::cl_be_t,
+    parameter type                   l_be_ECC_t      = std_cache_pkg::cl_be_ECC_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8
 ) (
     input logic clk_i,
@@ -37,15 +39,42 @@ module tag_cmp #(
     output logic [DCACHE_SET_ASSOC-1:0] hit_way_o,  // we've got a hit on the corresponding way
 
 
-    output logic    [DCACHE_SET_ASSOC-1:0] req_o,
-    output logic    [      ADDR_WIDTH-1:0] addr_o,
-    output l_data_t                        wdata_o,
-    output logic                           we_o,
-    output l_be_t                          be_o,
-    input  l_data_t [DCACHE_SET_ASSOC-1:0] rdata_i
+    output logic    [DCACHE_SET_ASSOC-1:0]      req_o,
+    output logic    [      ADDR_WIDTH-1:0]      addr_o,
+    output l_data_ECC_t                         wdata_o,
+    output logic                                we_o,
+    output l_be_ECC_t                               be_o, // TODO next
+    input  l_data_ECC_t [DCACHE_SET_ASSOC-1:0]  rdata_i
 );
+l_data_t wdata;
+  logic [DCACHE_SET_ASSOC-1:0][1:0] err;
+   
+  for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
+    assign rdata_o[i].valid = rdata_i[i].valid;
+    assign rdata_o[i].tag = rdata_i[i].tag;
+    assign rdata_o[i].dirty = rdata_i[i].dirty;
+    hsiao_ecc_dec #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
+    ) i_hsio_ecc_dec_rdata (
+      .in(rdata_i[i].data),
+      .out(rdata_o[i].data),
+      .syndrome_o(),
+      .err_o(err[i]) // TODO error handling
+    );
 
-  assign rdata_o = rdata_i;
+  end
+
+  
+  
+  hsiao_ecc_enc #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
+  ) i_hsio_ecc_enc_wdata (
+    .in(wdata.data),
+    .out(wdata_o.data)
+  );
+  assign wdata_o.valid = wdata.valid;
+  assign wdata_o.tag = wdata.tag;
+  assign wdata_o.dirty = wdata.dirty;
+
+
   // one hot encoded
   logic [NR_PORTS-1:0] id_d, id_q;
   logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
@@ -63,21 +92,22 @@ module tag_cmp #(
 
     gnt_o   = '0;
     id_d    = '0;
-    wdata_o = '0;
+    wdata = '0;
     req_o   = '0;
     addr_o  = '0;
     be_o    = '0;
     we_o    = '0;
     // Request Side
     // priority select
+    // TODO does it make sense to put things in if statement?
     for (int unsigned i = 0; i < NR_PORTS; i++) begin
       req_o    = req_i[i];
       id_d     = (1'b1 << i);
       gnt_o[i] = 1'b1;
       addr_o   = addr_i[i];
-      be_o     = be_i[i];
+      be_o[(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0]     = be_i[i];
       we_o     = we_i[i];
-      wdata_o  = wdata_i[i];
+      wdata    = wdata_i[i];
 
       if (req_i[i]) break;
     end
@@ -95,6 +125,8 @@ module tag_cmp #(
 `endif
   end
 
+
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       id_q <= 0;
@@ -102,5 +134,6 @@ module tag_cmp #(
       id_q <= id_d;
     end
   end
+
 
 endmodule

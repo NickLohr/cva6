@@ -83,14 +83,14 @@ module std_nbdcache
   logic        [          NumPorts-1:0]                         bypass_valid;
   logic        [          NumPorts-1:0][                  63:0] bypass_data;
   // -------------------------------
-  // Arbiter <-> Datram,
+  // Arbiter <-> Dataram,
   // -------------------------------
   logic        [  DCACHE_SET_ASSOC-1:0]                         req_ram;
   logic        [DCACHE_INDEX_WIDTH-1:0]                         addr_ram;
   logic                                                         we_ram;
-  cache_line_t                                                  wdata_ram;
-  cache_line_t [  DCACHE_SET_ASSOC-1:0]                         rdata_ram;
-  cl_be_t                                                       be_ram;
+  cache_line_ECC_t                                              wdata_ram;
+  cache_line_ECC_t [  DCACHE_SET_ASSOC-1:0]                     rdata_ram;
+  cl_be_ECC_t                                                   be_ram;
   vldrty_t     [  DCACHE_SET_ASSOC-1:0]                         be_valid_dirty_ram;
 
   // Busy signals
@@ -185,7 +185,7 @@ module std_nbdcache
   // --------------
   for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : sram_block
     sram #(
-        .DATA_WIDTH(DCACHE_LINE_WIDTH),
+        .DATA_WIDTH(DCACHE_LINE_ECC_WIDTH),
         .NUM_WORDS (DCACHE_NUM_WORDS)
     ) data_sram (
         .req_i  (req_ram[i]),
@@ -201,7 +201,7 @@ module std_nbdcache
     );
 
     sram #(
-        .DATA_WIDTH(DCACHE_TAG_WIDTH),
+        .DATA_WIDTH(DCACHE_TAG_WIDTH), // TODO make tag
         .NUM_WORDS (DCACHE_NUM_WORDS)
     ) tag_sram (
         .req_i  (req_ram[i]),
@@ -281,7 +281,7 @@ module std_nbdcache
 
   //pragma translate_off
   initial begin
-    assert (DCACHE_LINE_WIDTH / CVA6Cfg.AxiDataWidth inside {2, 4, 8, 16})
+    assert (DCACHE_LINE_ECC_WIDTH / CVA6Cfg.AxiDataWidth inside {2, 4, 8, 16})
     else $fatal(1, "Cache line size needs to be a power of two multiple of AxiDataWidth");
   end
   //pragma translate_on

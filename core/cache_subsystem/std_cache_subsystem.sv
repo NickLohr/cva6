@@ -67,9 +67,9 @@ module std_cache_subsystem
   axi_rsp_t axi_resp_icache;
   axi_req_t axi_req_bypass;
   axi_rsp_t axi_resp_bypass;
-  axi_req_t axi_req_data;
-  axi_rsp_t axi_resp_data;
-
+  axi_req_t axi_req_data; // only in inputs
+  axi_rsp_t axi_resp_data; // only in outputs
+  
   logic     icache_busy;
   logic     dcache_busy;
 
@@ -291,7 +291,7 @@ module std_cache_subsystem
   else
     $warning(
         1,
-        "[l1 dcache] reading invalid instructions: vaddr=%08X, data=%08X",
+        "[l1 icache] reading invalid instructions: vaddr=%08X, data=%08X",
         icache_dreq_o.vaddr,
         icache_dreq_o.data
     );
@@ -315,11 +315,15 @@ module std_cache_subsystem
       assert property (
           @(posedge clk_i) disable iff (~rst_ni) dcache_req_ports_o[j].data_rvalid |-> (|dcache_req_ports_o[j].data_rdata) !== 1'hX)
       else
-        $warning(
+        $fatal(
             1,
-            "[l1 dcache] reading invalid data on port %01d: data=%016X",
+            "[l1 dcache] reading invalid data on port %01d: data=%016X: data=%X: valid: %b, test: %01X, comp: %b",
             j,
-            dcache_req_ports_o[j].data_rdata
+            dcache_req_ports_o[j].data_rdata,
+            dcache_req_ports_o[j].data_rdata,
+            dcache_req_ports_o[j].data_rvalid,
+            |dcache_req_ports_o[j].data_rdata,
+            |dcache_req_ports_o[j].data_rdata !==1'hX
         );
     end
   endgenerate
