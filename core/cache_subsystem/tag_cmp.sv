@@ -49,28 +49,24 @@ module tag_cmp #(
 
   l_data_t wdata;
   l_be_t be;
-  logic [DCACHE_SET_ASSOC-1:0][1:0] err;
-   
   
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
     assign rdata_o[i].valid = rdata_i[i].valid;
     assign rdata_o[i].tag = rdata_i[i].tag;
     assign rdata_o[i].dirty = rdata_i[i].dirty;
 
-    for (genvar j = 0; j<((DCACHE_LINE_WIDTH+7)/8);j++){
+    for (genvar j = 0; j<((ariane_pkg::DCACHE_LINE_WIDTH+7)/8);j++) begin
       hsiao_ecc_dec #(.DataWidth(8)
       ) i_hsio_ecc_dec_rdata (
         .in(rdata_i[i].data[j*13+:13]),
         .out(rdata_o[i].data[j*8+:8]),
         .syndrome_o(),
-        .err_o(err[i]) // TODO error handling
+        .err_o() // TODO error handling
+	 );
+     end
+   end
 
     
-  
-
-    );
-
-    }
 
 
     
@@ -87,14 +83,14 @@ module tag_cmp #(
   
 
     );*/
-  end
-  for (genvar j = 0; j<((DCACHE_LINE_WIDTH+7)/8);j++){
+
+  for (genvar j = 0; j<((ariane_pkg::DCACHE_LINE_WIDTH+7)/8);j++)begin
     hsiao_ecc_enc #(.DataWidth(8)
     ) i_hsio_ecc_enc_wdata (
       .in(wdata.data[j*8+:8]),
       .out(wdata_o.data[j*13+:13])
     );
-  }
+  end
 
   assign wdata_o.valid = wdata.valid;
   assign wdata_o.tag = wdata.tag;

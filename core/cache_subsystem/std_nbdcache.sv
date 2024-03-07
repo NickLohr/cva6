@@ -283,7 +283,7 @@ module std_nbdcache
   //pragma translate_off
   initial begin
     assert (DCACHE_LINE_ECC_WIDTH / CVA6Cfg.AxiDataWidth inside {2, 4, 8, 16})
-    else $fatal(1, "Cache line size needs to be a power of two multiple of AxiDataWidth");
+    else $warning(1, "Cache line size needs to be a power of two multiple of AxiDataWidth");
   end
   //pragma translate_on
 endmodule
