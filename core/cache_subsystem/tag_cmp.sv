@@ -49,10 +49,12 @@ module tag_cmp #(
 
   l_data_t wdata;
   l_be_t be;
+  logic [((ariane_pkg::DCACHE_TAG_WIDTH+7)/8)*8-1:0] tag_write;
+  logic [DCACHE_SET_ASSOC-1:0][((ariane_pkg::DCACHE_TAG_WIDTH+7)/8)*8-1:0] tag_read;
   
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
     assign rdata_o[i].valid = rdata_i[i].valid;
-    assign rdata_o[i].tag = rdata_i[i].tag;
+    //assign rdata_o[i].tag = rdata_i[i].tag;
     assign rdata_o[i].dirty = rdata_i[i].dirty;
 
     for (genvar j = 0; j<((ariane_pkg::DCACHE_LINE_WIDTH+7)/8);j++) begin
@@ -64,25 +66,23 @@ module tag_cmp #(
         .err_o() // TODO error handling
 	 );
      end
+     for (genvar j = 0; j<((ariane_pkg::DCACHE_TAG_WIDTH+7)/8);j++) begin
+      hsiao_ecc_dec #(.DataWidth(8)
+      ) i_hsio_ecc_dec_rdata (
+        .in(rdata_i[i].tag[j*13+:13]),
+        .out(tag_read[i][j*8+:8]),
+        .syndrome_o(),
+        .err_o() // TODO error handling
+	 );
+     end
+    
+     assign rdata_o[i].tag = tag_read[i][ariane_pkg::DCACHE_TAG_WIDTH-1:0];
    end
 
-    
-
-
-    
-    /* No correction, just rewiring
-
-    hsiao_ecc_dec #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
-    ) i_hsio_ecc_dec_rdata (
-      .in(rdata_i[i].data),
-      .out(rdata_o[i].data),
-      .syndrome_o(),
-      .err_o(err[i]) // TODO error handling
-
-  
   
 
-    );*/
+
+
 
   for (genvar j = 0; j<((ariane_pkg::DCACHE_LINE_WIDTH+7)/8);j++)begin
     hsiao_ecc_enc #(.DataWidth(8)
@@ -92,8 +92,21 @@ module tag_cmp #(
     );
   end
 
+  for (genvar j = 0; j<((ariane_pkg::DCACHE_TAG_WIDTH+7)/8);j++)begin // -1 because it is not precise byte, so the last one just gets calculated smaller
+    hsiao_ecc_enc #(.DataWidth(8)
+    ) i_hsio_ecc_enc_wdata (
+      .in(tag_write[j*8+:8]),
+      .out(wdata_o.tag[j*13+:13])
+    );
+
+  end
+  assign tag_write[((ariane_pkg::DCACHE_TAG_WIDTH+7)/8)*8-1:ariane_pkg::DCACHE_TAG_WIDTH] = 4'b0;
+  assign tag_write[ariane_pkg::DCACHE_TAG_WIDTH-1:0]= wdata.tag;
+
+
+
   assign wdata_o.valid = wdata.valid;
-  assign wdata_o.tag = wdata.tag;
+  //assign wdata_o.tag = wdata.tag;
   assign wdata_o.dirty = wdata.dirty;
 
 
@@ -110,8 +123,20 @@ module tag_cmp #(
     for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
   end
 
+  logic [ariane_pkg::DCACHE_TAG_ECC_WIDTH-1:0] sel_tag_ECC;
+  logic [((ariane_pkg::DCACHE_TAG_WIDTH+7)/8)*8-1:0] sel_tag_c;
+
+  assign sel_tag_c[((ariane_pkg::DCACHE_TAG_WIDTH+7)/8)*8-1:ariane_pkg::DCACHE_TAG_WIDTH] = '0;
+  assign sel_tag_c[ariane_pkg::DCACHE_TAG_WIDTH-1:0]= sel_tag;
+ for (genvar j = 0; j<((ariane_pkg::DCACHE_TAG_WIDTH+7)/8);j++)begin
+  hsiao_ecc_enc #(.DataWidth(8)
+  ) i_hsio_ecc_enc_sel_tag (
+      .in(sel_tag_c[j*8+:8]),
+      .out(sel_tag_ECC[j*13+:13])
+    );
+ end
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0;
+    assign hit_way_o[j] = (sel_tag == rdata_o[j].tag) ? rdata_i[j].valid : 1'b0;
   end
 
   always_comb begin
