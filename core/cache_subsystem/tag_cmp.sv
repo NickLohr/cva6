@@ -52,13 +52,28 @@ module tag_cmp #(
   logic [DCACHE_SET_ASSOC-1:0][1:0] err;
    
   
-eb6715 (Encoding seems to work kinda, decoding doesn't, current guess, the issue is in be)
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
     assign rdata_o[i].valid = rdata_i[i].valid;
     assign rdata_o[i].tag = rdata_i[i].tag;
     assign rdata_o[i].dirty = rdata_i[i].dirty;
 
-    assign rdata_o[i].data = rdata_i[i].data[ariane_pkg::DCACHE_LINE_WIDTH-1:0];
+    for (genvar j = 0; j<((DCACHE_LINE_WIDTH+7)/8);j++){
+      hsiao_ecc_dec #(.DataWidth(8)
+      ) i_hsio_ecc_dec_rdata (
+        .in(rdata_i[i].data[j*13+:13]),
+        .out(rdata_o[i].data[j*8+:8]),
+        .syndrome_o(),
+        .err_o(err[i]) // TODO error handling
+
+    
+  
+
+    );
+
+    }
+
+
+    
     /* No correction, just rewiring
 
     hsiao_ecc_dec #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
@@ -73,20 +88,21 @@ eb6715 (Encoding seems to work kinda, decoding doesn't, current guess, the issue
 
     );*/
   end
- 
-  hsiao_ecc_enc #(.DataWidth(ariane_pkg::DCACHE_LINE_WIDTH)
-  ) i_hsio_ecc_enc_wdata (
-    .in(wdata.data),
-    .out(wdata_o.data)
+  for (genvar j = 0; j<((DCACHE_LINE_WIDTH+7)/8);j++){
+    hsiao_ecc_enc #(.DataWidth(8)
+    ) i_hsio_ecc_enc_wdata (
+      .in(wdata.data[j*8+:8]),
+      .out(wdata_o.data[j*13+:13])
+    );
+  }
 
-  );  assign wdata_o.valid = wdata.valid;
+  assign wdata_o.valid = wdata.valid;
   assign wdata_o.tag = wdata.tag;
   assign wdata_o.dirty = wdata.dirty;
 
 
   assign be_o.vldrty = be.vldrty;
-  assign be_o.data[(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0] = be.data;
-  assign be_o.data[(ariane_pkg::DCACHE_LINE_ECC_WIDTH+7)/8-1:(ariane_pkg::DCACHE_LINE_WIDTH+7)/8] = '1;
+  assign be_o.data= be.data;
   assign be_o.tag = be.tag;
 
   // one hot encoded

@@ -186,7 +186,8 @@ module std_nbdcache
   for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : sram_block
     sram #(
         .DATA_WIDTH(DCACHE_LINE_ECC_WIDTH),
-        .NUM_WORDS (DCACHE_NUM_WORDS)
+        .NUM_WORDS (DCACHE_NUM_WORDS),
+        .BYTE_WIDTH(13) // TODO
     ) data_sram (
         .req_i  (req_ram[i]),
         .rst_ni (rst_ni),
