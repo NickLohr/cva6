@@ -52,6 +52,15 @@ module tag_cmp #(
   logic [DCACHE_SET_ASSOC-1:0][(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0][1:0] err_data;
   logic [DCACHE_SET_ASSOC-1:0][(ariane_pkg::DCACHE_TAG_WIDTH+7)/8-1:0][1:0] err_tag;
 
+  logic [NR_PORTS:0] id_d, id_q;
+  logic change_d, change_q;
+  logic [ADDR_WIDTH-1:0] addr_d, addr_q;
+  l_data_t corrected_data_d, corrected_data_q;
+  logic requested_d, requested_q;
+
+  logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
+  logic [ariane_pkg::DCACHE_TAG_ECC_WIDTH-1:0] sel_tag_ECC;
+
   
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
 
@@ -78,6 +87,7 @@ module tag_cmp #(
       .syndrome_o(),
       .err_o(err_tag[i])
     );
+
   
    end
 
@@ -109,13 +119,11 @@ module tag_cmp #(
   assign be_o.tag = be.tag;
 
   // one hot encoded
-  logic [NR_PORTS-1:0] id_d, id_q;
-  logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
-  logic [ariane_pkg::DCACHE_TAG_ECC_WIDTH-1:0] sel_tag_ECC;
+
 
   always_comb begin : tag_sel
     sel_tag = '0;
-    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
+    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i]; // TODO add extra condition to sel (autocorrect)
   end
 
   /*
@@ -123,7 +131,6 @@ module tag_cmp #(
     .BYTESIZE(8),
     .DataWidth(ariane_pkg::DCACHE_TAG_WIDTH),
     .TotalWidth(ariane_pkg::DCACHE_TAG_ECC_WIDTH)
-
   ) i_sel_tag_encoding (
     .data_i(sel_tag),
     .data_o(sel_tag_ECC)
@@ -143,6 +150,26 @@ module tag_cmp #(
     addr_o  = '0;
     be    = '0;
     we_o    = '0;
+    corrected_data_d = corrected_data_q;
+    change_d = change_q;
+    requested_d = requested_q;
+    addr_d = addr_q;
+    if (requested_q== 1'b1)begin
+      addr_d = addr_q+1; // If requested, increase address (would reset if error found)
+    end
+    
+
+
+    for (int unsigned i = 0; i < DCACHE_SET_ASSOC; i++)begin
+      if (err_data[i][0] && requested_q == 1'b1)begin
+        corrected_data_d = rdata_o[i]; // TODO future rdata_i
+        change_d = 1'b1;
+        requested_d = 1'b0;
+        addr_d = addr_q; // error found, therefore redo this address
+        break;
+      end
+
+    end
     // Request Side
     // priority select
     // TODO does it make sense to put things in if statement?
@@ -156,7 +183,20 @@ module tag_cmp #(
       wdata    = wdata_i[i];
 
       if (req_i[i]) break;
+    if (|req_i == 0)begin // TODO add condition from a state when to autocorrect
+      // do auto correction 
+      req_o = '1; //check if that is correct
+      id_d = (1'b1 << NR_PORTS);
+      // get to the cache_ctrl which is irrelavant for that
+      addr_o = addr_q;
+      be.tag = '1;
+      be.data = '1;
+      be.vldrty = '1; // TODO understand what that does
+      we_o = change_q;
+      wdata = corrected_data_q; // TODO remove need of encoding in this case
+      requested_d = 1'b1;
     end
+  end
 
 `ifndef SYNTHESIS
 `ifndef VERILATOR
@@ -176,8 +216,17 @@ module tag_cmp #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       id_q <= 0;
+      change_q <= 0;
+      addr_q <= 0;
+      corrected_data_q <= 0;
+      requested_q <= 0;
+
     end else begin
       id_q <= id_d;
+      change_q <= change_d;
+      addr_q <= addr_d;
+      corrected_data_q <= corrected_data_d;
+      requested_q <= requested_d;
     end
   end
 
