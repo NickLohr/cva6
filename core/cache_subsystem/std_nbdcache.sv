@@ -90,7 +90,7 @@ module std_nbdcache
   logic                                                         we_ram;
   cache_line_ECC_t                                              wdata_ram;
   cache_line_ECC_t [  DCACHE_SET_ASSOC-1:0]                     rdata_ram;
-  cl_be_ECC_t                                                   be_ram;
+  cl_be_t                                                   be_ram;
   vldrty_t     [  DCACHE_SET_ASSOC-1:0]                         be_valid_dirty_ram;
 
   // Busy signals

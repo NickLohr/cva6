@@ -335,12 +335,15 @@ package ariane_pkg;
   localparam int unsigned ICACHE_USER_LINE_WIDTH = (AXI_USER_WIDTH == 1) ? 4 : 128;  // in bit
   // D$
   localparam int unsigned DCACHE_LINE_WIDTH = `CONFIG_L1D_CACHELINE_WIDTH;
-  localparam int unsigned DCACHE_LINE_ECC_WIDTH = ($clog2(8)+2 +8) * (DCACHE_LINE_WIDTH+7)/8;
+  localparam int unsigned DCACHE_LINE_WIDTH_LENGTH = (DCACHE_LINE_WIDTH+7)/8
+  
+  localparam int unsigned DCACHE_LINE_ECC_WIDTH = 13 *DCACHE_LINE_WIDTH_LENGTH;
   
   localparam int unsigned DCACHE_SET_ASSOC = `CONFIG_L1D_ASSOCIATIVITY;
   localparam int unsigned DCACHE_INDEX_WIDTH = $clog2(`CONFIG_L1D_SIZE / DCACHE_SET_ASSOC);
   localparam int unsigned DCACHE_TAG_WIDTH = riscv::PLEN - DCACHE_INDEX_WIDTH;
-  localparam int unsigned DCACHE_TAG_ECC_WIDTH = ($clog2(8)+2 +8) * (DCACHE_TAG_WIDTH+7)/8; // make byte size variable
+  localparam int unsigned DCACHE_TAG_WIDTH_LENGTH = (DCACHE_TAG_WIDTH+7)/8
+  localparam int unsigned DCACHE_TAG_ECC_WIDTH = 13* DCACHE_TAG_WIDTH_LENGTH; // make byte size variable
   localparam int unsigned DCACHE_USER_LINE_WIDTH = (AXI_USER_WIDTH == 1) ? 4 : 128;  // in bit
   localparam int unsigned DCACHE_USER_WIDTH = DATA_USER_WIDTH;
 
@@ -362,9 +365,11 @@ package ariane_pkg;
       CONFIG_L1D_SIZE / DCACHE_SET_ASSOC
   );  // in bit, contains also offset width
   localparam int unsigned DCACHE_TAG_WIDTH = riscv::PLEN - DCACHE_INDEX_WIDTH;  // in bit //56-12
-  localparam int unsigned DCACHE_TAG_ECC_WIDTH = ($clog2(8)+2 +8) * (DCACHE_TAG_WIDTH+7)/8; // make byte size variable
+  localparam int unsigned DCACHE_TAG_WIDTH_LENGTH = (DCACHE_TAG_WIDTH+7)/8;
+  localparam int unsigned DCACHE_TAG_ECC_WIDTH = 13* DCACHE_TAG_WIDTH_LENGTH; // make byte size variable
   localparam int unsigned DCACHE_LINE_WIDTH = cva6_config_pkg::CVA6ConfigDcacheLineWidth;  // in bit
-  localparam int unsigned DCACHE_LINE_ECC_WIDTH = ($clog2(8)+2 +8) * (DCACHE_LINE_WIDTH+7)/8;
+  localparam int unsigned DCACHE_LINE_WIDTH_LENGTH = (DCACHE_LINE_WIDTH+7)/8;
+  localparam int unsigned DCACHE_LINE_ECC_WIDTH = 13* DCACHE_LINE_WIDTH_LENGTH;
   localparam int unsigned DCACHE_USER_LINE_WIDTH  = (AXI_USER_WIDTH == 1) ? 4 : cva6_config_pkg::CVA6ConfigDcacheLineWidth; // in bit
   localparam int unsigned DCACHE_USER_WIDTH = DATA_USER_WIDTH;
 

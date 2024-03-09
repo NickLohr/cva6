@@ -22,7 +22,6 @@ module tag_cmp #(
     parameter type                   l_data_t         = std_cache_pkg::cache_line_t,
     parameter type                   l_data_ECC_t     = std_cache_pkg::cache_line_ECC_t,
     parameter type                   l_be_t           = std_cache_pkg::cl_be_t,
-    parameter type                   l_be_ECC_t      = std_cache_pkg::cl_be_ECC_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8
 ) (
     input logic clk_i,
@@ -43,14 +42,14 @@ module tag_cmp #(
     output logic    [      ADDR_WIDTH-1:0]      addr_o,
     output l_data_ECC_t                         wdata_o,
     output logic                                we_o,
-    output l_be_ECC_t                               be_o, // TODO next
+    output l_be_t                               be_o, // TODO next
     input  l_data_ECC_t [DCACHE_SET_ASSOC-1:0]  rdata_i
 );
 
   l_data_t wdata;
   l_be_t be;
-  logic [DCACHE_SET_ASSOC-1:0][(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0][1:0] err_data;
-  logic [DCACHE_SET_ASSOC-1:0][(ariane_pkg::DCACHE_TAG_WIDTH+7)/8-1:0][1:0] err_tag;
+  logic [DCACHE_SET_ASSOC-1:0][ariane_pkg::DCACHE_LINE_WIDTH_LENGTH-1:0][1:0] err_data;
+  logic [DCACHE_SET_ASSOC-1:0][ariane_pkg::DCACHE_TAG_WIDTH_LENGTH-1:0][1:0] err_tag;
 
   logic [NR_PORTS:0] id_d, id_q;
   logic change_d, change_q;
@@ -126,7 +125,7 @@ module tag_cmp #(
     for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i]; // TODO add extra condition to sel (autocorrect)
   end
 
-  /*
+  
   PerByteEncoding #(
     .BYTESIZE(8),
     .DataWidth(ariane_pkg::DCACHE_TAG_WIDTH),
@@ -135,10 +134,10 @@ module tag_cmp #(
     .data_i(sel_tag),
     .data_o(sel_tag_ECC)
   );
-  */
+  
 
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag == rdata_o[j].tag) ? rdata_o[j].valid : 1'b0; // TODO maybe not rdata_o
+    assign hit_way_o[j] = (sel_tag_ECC == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; // TODO maybe not rdata_o
   end
 
   always_comb begin
@@ -238,13 +237,14 @@ endmodule
 module PerByteEncoding #(
   parameter int unsigned BYTESIZE = 8,
   parameter int unsigned DataWidth = 64,
-  parameter int unsigned TotalWidth = ((DataWidth+7)/8)* ($clog2(BYTESIZE)+2+BYTESIZE)
+  parameter int unsigned DataWidthLength = ((DataWidth+7)/8),
+  parameter int unsigned TotalWidth = DataWidthLength * ($clog2(BYTESIZE)+2+BYTESIZE)
 ) (
   input logic[DataWidth-1:0] data_i,
   output logic[TotalWidth-1:0] data_o
 );
-  logic[((DataWidth+7)/8)*8-1:0] upsized;
-  for (genvar j = 0; j<((DataWidth+7)/8);j++)begin // -1 because it is not precise byte, so the last one just gets calculated smaller
+  logic[DataWidthLength*8-1:0] upsized;
+  for (genvar j = 0; j<DataWidthLength;j++)begin // -1 because it is not precise byte, so the last one just gets calculated smaller
     hsiao_ecc_enc #(.DataWidth(BYTESIZE)
     ) i_hsio_ecc_enc_wdata (
       .in(upsized[j*8+:8]),
@@ -263,16 +263,17 @@ endmodule
 module PerByteDecoding #(
   parameter int unsigned BYTESIZE = 8,
   parameter int unsigned DataWidth = 64,
-  parameter int unsigned TotalWidth = ((DataWidth+7)/8)* ($clog2(BYTESIZE)+2+BYTESIZE),
+  parameter int unsigned DataWidthLength = ((DataWidth+7)/8),
+  parameter int unsigned TotalWidth = DataWidthLength* ($clog2(BYTESIZE)+2+BYTESIZE),
   parameter int unsigned ProtWidth = ($clog2(BYTESIZE)+2)
 )(
   input [TotalWidth-1:0] data_i,
   output [DataWidth-1:0] data_o, 
-  output [(DataWidth+7)/8-1:0][ProtWidth-1:0] syndrome_o,
-  output [(DataWidth+7)/8-1:0][1:0] err_o
+  output [DataWidthLength-1:0][ProtWidth-1:0] syndrome_o,
+  output [DataWidthLength-1:0][1:0] err_o
 );
-  logic[((DataWidth+7)/8)*8-1:0] upsized;
-  for (genvar j = 0; j<((DataWidth+7)/8);j++) begin
+  logic[DataWidthLength*8-1:0] upsized;
+  for (genvar j = 0; j<DataWidthLength;j++) begin
     hsiao_ecc_dec #(.DataWidth(BYTESIZE)
     ) i_hsio_ecc_dec_rdata (
       .in(data_i[j*13+:13]),
