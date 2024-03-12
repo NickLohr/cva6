@@ -88,9 +88,9 @@ module std_nbdcache
   logic        [  DCACHE_SET_ASSOC-1:0]                         req_ram;
   logic        [DCACHE_INDEX_WIDTH-1:0]                         addr_ram;
   logic                                                         we_ram;
-  cache_line_t                                                  wdata_ram;
-  cache_line_t [  DCACHE_SET_ASSOC-1:0]                         rdata_ram;
-  cl_be_t                                                       be_ram;
+  cache_line_ECC_t                                                  wdata_ram;
+  cache_line_ECC_t [  DCACHE_SET_ASSOC-1:0]                         rdata_ram;
+  cl_be_ECC_t                                                       be_ram;
   vldrty_t     [  DCACHE_SET_ASSOC-1:0]                         be_valid_dirty_ram;
 
   // Busy signals
@@ -185,7 +185,7 @@ module std_nbdcache
   // --------------
   for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : sram_block
     sram #(
-        .DATA_WIDTH(DCACHE_LINE_WIDTH),
+        .DATA_WIDTH(137), // TODO
         .NUM_WORDS (DCACHE_NUM_WORDS)
     ) data_sram (
         .req_i  (req_ram[i]),
