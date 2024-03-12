@@ -73,13 +73,12 @@ package std_cache_pkg;
     logic [ariane_pkg::DCACHE_LINE_WIDTH_LENGTH-1:0] dirty;  // state array
   } cache_line_t;
 
-  // TODO make tag ECC
   typedef struct packed {
-    logic [ariane_pkg::DCACHE_TAG_ECC_WIDTH-1:0]        tag;    // tag array
-    logic [ariane_pkg::DCACHE_LINE_ECC_WIDTH-1:0]       data;   // data array
+    logic [ariane_pkg::DCACHE_TAG_WIDTH_RAM-1:0]        tag;    // tag array
+    logic [ariane_pkg::DCACHE_LINE_WIDTH_RAM-1:0]       data;   // data array
     logic                                               valid;  // state array
     logic [ariane_pkg::DCACHE_LINE_WIDTH_LENGTH-1:0] dirty;  // state array TODO check
-  } cache_line_ECC_t;
+  } cache_line_RAM_t;
 
   // cache line byte enable
   typedef struct packed {

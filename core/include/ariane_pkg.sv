@@ -40,6 +40,9 @@ package ariane_pkg;
 
   localparam ISSUE_WIDTH = 1;
 
+  // parameter to turn on (1) or off (0) SECDED
+  localparam SECDED_ENABLED= 0;
+
   // depth of store-buffers, this needs to be a power of two
   localparam logic [2:0] DEPTH_SPEC = 'd4;
 
@@ -296,6 +299,7 @@ package ariane_pkg;
   // Cache config
   // ---------------
 
+
   // for usage in OpenPiton we have to propagate the openpiton L15 configuration from l15.h
 `ifdef PITON_ARIANE
 
@@ -335,15 +339,12 @@ package ariane_pkg;
   localparam int unsigned ICACHE_USER_LINE_WIDTH = (AXI_USER_WIDTH == 1) ? 4 : 128;  // in bit
   // D$
   localparam int unsigned DCACHE_LINE_WIDTH = `CONFIG_L1D_CACHELINE_WIDTH;
-  localparam int unsigned DCACHE_LINE_WIDTH_LENGTH = (DCACHE_LINE_WIDTH+7)/8
-  
-  localparam int unsigned DCACHE_LINE_ECC_WIDTH = 13 *DCACHE_LINE_WIDTH_LENGTH;
+
   
   localparam int unsigned DCACHE_SET_ASSOC = `CONFIG_L1D_ASSOCIATIVITY;
   localparam int unsigned DCACHE_INDEX_WIDTH = $clog2(`CONFIG_L1D_SIZE / DCACHE_SET_ASSOC);
   localparam int unsigned DCACHE_TAG_WIDTH = riscv::PLEN - DCACHE_INDEX_WIDTH;
-  localparam int unsigned DCACHE_TAG_WIDTH_LENGTH = (DCACHE_TAG_WIDTH+7)/8
-  localparam int unsigned DCACHE_TAG_ECC_WIDTH = 13* DCACHE_TAG_WIDTH_LENGTH; // make byte size variable
+
   localparam int unsigned DCACHE_USER_LINE_WIDTH = (AXI_USER_WIDTH == 1) ? 4 : 128;  // in bit
   localparam int unsigned DCACHE_USER_WIDTH = DATA_USER_WIDTH;
 
@@ -364,12 +365,8 @@ package ariane_pkg;
   localparam int unsigned DCACHE_INDEX_WIDTH = $clog2(
       CONFIG_L1D_SIZE / DCACHE_SET_ASSOC
   );  // in bit, contains also offset width
-  localparam int unsigned DCACHE_TAG_WIDTH = riscv::PLEN - DCACHE_INDEX_WIDTH;  // in bit //56-12
-  localparam int unsigned DCACHE_TAG_WIDTH_LENGTH = (DCACHE_TAG_WIDTH+7)/8;
-  localparam int unsigned DCACHE_TAG_ECC_WIDTH = 13* DCACHE_TAG_WIDTH_LENGTH; // make byte size variable
+  localparam int unsigned DCACHE_TAG_WIDTH = riscv::PLEN - DCACHE_INDEX_WIDTH;  // in bit
   localparam int unsigned DCACHE_LINE_WIDTH = cva6_config_pkg::CVA6ConfigDcacheLineWidth;  // in bit
-  localparam int unsigned DCACHE_LINE_WIDTH_LENGTH = (DCACHE_LINE_WIDTH+7)/8;
-  localparam int unsigned DCACHE_LINE_ECC_WIDTH = 13* DCACHE_LINE_WIDTH_LENGTH;
   localparam int unsigned DCACHE_USER_LINE_WIDTH  = (AXI_USER_WIDTH == 1) ? 4 : cva6_config_pkg::CVA6ConfigDcacheLineWidth; // in bit
   localparam int unsigned DCACHE_USER_WIDTH = DATA_USER_WIDTH;
 
@@ -379,6 +376,22 @@ package ariane_pkg;
   localparam int unsigned DCACHE_TID_WIDTH = cva6_config_pkg::CVA6ConfigDcacheIdWidth;
 
   localparam int unsigned WT_DCACHE_WBUF_DEPTH = cva6_config_pkg::CVA6ConfigWtDcacheWbufDepth;
+
+
+  // ECC for cache
+  localparam int unsigned BYTESIZE = 8;
+  localparam int unsigned BYTESIZE_ECC = 2+BYTESIZE+ $clog2(BYTESIZE);
+
+  localparam int unsigned DCACHE_LINE_WIDTH_LENGTH = (DCACHE_LINE_WIDTH+BYTESIZE-1)/BYTESIZE;
+  localparam int unsigned DCACHE_LINE_ECC_WIDTH = BYTESIZE_ECC *DCACHE_LINE_WIDTH_LENGTH;
+  localparam int unsigned DCACHE_TAG_WIDTH_LENGTH = (DCACHE_TAG_WIDTH+BYTESIZE-1)/BYTESIZE;
+  localparam int unsigned DCACHE_TAG_ECC_WIDTH = BYTESIZE_ECC* DCACHE_TAG_WIDTH_LENGTH; // make byte size variable
+
+  localparam int unsigned DCACHE_LINE_WIDTH_RAM = (SECDED_ENABLED) ? DCACHE_LINE_ECC_WIDTH : DCACHE_LINE_WIDTH;
+  localparam int unsigned DCACHE_TAG_WIDTH_RAM = (SECDED_ENABLED) ? DCACHE_TAG_ECC_WIDTH : DCACHE_TAG_WIDTH;
+  localparam int unsigned BYTESIZE_RAM = (SECDED_ENABLED) ? BYTESIZE_ECC : BYTESIZE;
+  
+  
 
   // ---------------
   // EX Stage

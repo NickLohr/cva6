@@ -20,7 +20,7 @@ module tag_cmp #(
     parameter int unsigned           NR_PORTS         = 3,
     parameter int unsigned           ADDR_WIDTH       = 64,
     parameter type                   l_data_t         = std_cache_pkg::cache_line_t,
-    parameter type                   l_data_ECC_t     = std_cache_pkg::cache_line_ECC_t,
+    parameter type                   l_data_RAM_t     = std_cache_pkg::cache_line_RAM_t,
     parameter type                   l_be_t           = std_cache_pkg::cl_be_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8
 ) (
@@ -40,10 +40,10 @@ module tag_cmp #(
 
     output logic    [DCACHE_SET_ASSOC-1:0]      req_o,
     output logic    [      ADDR_WIDTH-1:0]      addr_o,
-    output l_data_ECC_t                         wdata_o,
+    output l_data_RAM_t                         wdata_o,
     output logic                                we_o,
     output l_be_t                               be_o, // TODO next
-    input  l_data_ECC_t [DCACHE_SET_ASSOC-1:0]  rdata_i
+    input  l_data_RAM_t [DCACHE_SET_ASSOC-1:0]  rdata_i
 );
 
   l_data_t wdata;
@@ -58,7 +58,7 @@ module tag_cmp #(
   logic requested_d, requested_q;
 
   logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
-  logic [ariane_pkg::DCACHE_TAG_ECC_WIDTH-1:0] sel_tag_ECC;
+  logic [ariane_pkg::DCACHE_TAG_WIDTH_RAM-1:0] sel_tag_ram;
 
   
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
@@ -67,9 +67,9 @@ module tag_cmp #(
     assign rdata_o[i].dirty = rdata_i[i].dirty;
 
     PerByteDecoding #(
-      .BYTESIZE(8),
+      .BYTESIZE(ariane_pkg::BYTESIZE),
       .DataWidth(ariane_pkg::DCACHE_LINE_WIDTH),
-      .TotalWidth(ariane_pkg::DCACHE_LINE_ECC_WIDTH)
+      .TotalWidth(ariane_pkg::DCACHE_LINE_WIDTH_RAM)
     ) i_data_read_decoding(
       .data_i(rdata_i[i].data),
       .data_o(rdata_o[i].data), 
@@ -77,9 +77,9 @@ module tag_cmp #(
       .err_o(err_data[i])
     );
     PerByteDecoding #(
-      .BYTESIZE(8),
+      .BYTESIZE(ariane_pkg::BYTESIZE),
       .DataWidth(ariane_pkg::DCACHE_TAG_WIDTH),
-      .TotalWidth(ariane_pkg::DCACHE_TAG_ECC_WIDTH)
+      .TotalWidth(ariane_pkg::DCACHE_TAG_WIDTH_RAM)
     ) i_tag_read_decoding(
       .data_i(rdata_i[i].tag),
       .data_o(rdata_o[i].tag), 
@@ -93,18 +93,18 @@ module tag_cmp #(
   
 
   PerByteEncoding #(
-    .BYTESIZE(8),
+    .BYTESIZE(ariane_pkg::BYTESIZE),
     .DataWidth(ariane_pkg::DCACHE_TAG_WIDTH),
-    .TotalWidth(ariane_pkg::DCACHE_TAG_ECC_WIDTH)
+    .TotalWidth(ariane_pkg::DCACHE_TAG_WIDTH_RAM)
   ) i_encoding_tag(
     .data_i(wdata.tag),
     .data_o(wdata_o.tag)
   );
 
   PerByteEncoding #(
-    .BYTESIZE(8),
+    .BYTESIZE(ariane_pkg::BYTESIZE),
     .DataWidth(ariane_pkg::DCACHE_LINE_WIDTH),
-    .TotalWidth(ariane_pkg::DCACHE_LINE_ECC_WIDTH)
+    .TotalWidth(ariane_pkg::DCACHE_LINE_WIDTH_RAM)
   )i_encoding_data(
     .data_i(wdata.data),
     .data_o(wdata_o.data)
@@ -122,22 +122,22 @@ module tag_cmp #(
 
   always_comb begin : tag_sel
     sel_tag = '0;
-    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i]; // TODO add extra condition to sel (autocorrect)
+    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
   end
 
   
   PerByteEncoding #(
-    .BYTESIZE(8),
+    .BYTESIZE(ariane_pkg::BYTESIZE),
     .DataWidth(ariane_pkg::DCACHE_TAG_WIDTH),
-    .TotalWidth(ariane_pkg::DCACHE_TAG_ECC_WIDTH)
+    .TotalWidth(ariane_pkg::DCACHE_TAG_WIDTH_RAM)
   ) i_sel_tag_encoding (
     .data_i(sel_tag),
-    .data_o(sel_tag_ECC)
+    .data_o(sel_tag_ram)
   );
   
 
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag_ECC == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; // TODO maybe not rdata_o
+    assign hit_way_o[j] = (sel_tag_ram == rdata_i[j].tag || ariane_pkg::SECDED_ENABLED==0) ? rdata_i[j].valid : 1'b0; 
   end
 
   always_comb begin
@@ -160,7 +160,7 @@ module tag_cmp #(
 
 
     for (int unsigned i = 0; i < DCACHE_SET_ASSOC; i++)begin
-      if (err_data[i][0] && requested_q == 1'b1)begin
+      if (err_data[i][0] && requested_q == 1'b1 && ariane_pkg::SECDED_ENABLED)begin
         corrected_data_d = rdata_o[i]; // TODO future rdata_i
         change_d = 1'b1;
         requested_d = 1'b0;
@@ -237,18 +237,20 @@ endmodule
 module PerByteEncoding #(
   parameter int unsigned BYTESIZE = 8,
   parameter int unsigned DataWidth = 64,
-  parameter int unsigned DataWidthLength = ((DataWidth+7)/8),
+  parameter int unsigned DataWidthLength = ((DataWidth+BYTESIZE-1)/BYTESIZE),
   parameter int unsigned TotalWidth = DataWidthLength * ($clog2(BYTESIZE)+2+BYTESIZE)
 ) (
   input logic[DataWidth-1:0] data_i,
   output logic[TotalWidth-1:0] data_o
 );
-  logic[DataWidthLength*8-1:0] upsized;
+  logic [TotalWidth-1:0] data; 
+  logic[DataWidthLength*BYTESIZE-1:0] upsized;
   for (genvar j = 0; j<DataWidthLength;j++)begin // -1 because it is not precise byte, so the last one just gets calculated smaller
-    hsiao_ecc_enc #(.DataWidth(BYTESIZE)
+    hsiao_ecc_enc #(.DataWidth(BYTESIZE),
+    .TotalWidth(TotalWidth)
     ) i_hsio_ecc_enc_wdata (
-      .in(upsized[j*8+:8]),
-      .out(data_o[j*13+:13])
+      .in(upsized[j*ariane_pkg::BYTESIZE+:ariane_pkg::BYTESIZE]),
+      .out(data[j*ariane_pkg::BYTESIZE_RAM+:ariane_pkg::BYTESIZE_RAM])
     );
 
   end
@@ -257,13 +259,14 @@ module PerByteEncoding #(
    	upsized[DataWidth-1:0]= data_i;
   end
 
+  assign data_o = (ariane_pkg::SECDED_ENABLED) ? data : data_i;
 endmodule
 
 
 module PerByteDecoding #(
   parameter int unsigned BYTESIZE = 8,
   parameter int unsigned DataWidth = 64,
-  parameter int unsigned DataWidthLength = ((DataWidth+7)/8),
+  parameter int unsigned DataWidthLength = ((DataWidth+BYTESIZE-1)/BYTESIZE),
   parameter int unsigned TotalWidth = DataWidthLength* ($clog2(BYTESIZE)+2+BYTESIZE),
   parameter int unsigned ProtWidth = ($clog2(BYTESIZE)+2)
 )(
@@ -272,18 +275,19 @@ module PerByteDecoding #(
   output [DataWidthLength-1:0][ProtWidth-1:0] syndrome_o,
   output [DataWidthLength-1:0][1:0] err_o
 );
-  logic[DataWidthLength*8-1:0] upsized;
-  for (genvar j = 0; j<DataWidthLength;j++) begin
-    hsiao_ecc_dec #(.DataWidth(BYTESIZE)
+  logic[DataWidthLength*BYTESIZE-1:0] upsized;
+  for (genvar j = 0; j<DataWidthLength && ariane_pkg::SECDED_ENABLED;j++) begin
+    hsiao_ecc_dec #(.DataWidth(BYTESIZE),
+    .TotalWidth(TotalWidth)
     ) i_hsio_ecc_dec_rdata (
-      .in(data_i[j*13+:13]),
-      .out(upsized[j*8+:8]),
+      .in(data_i[j*ariane_pkg::BYTESIZE_RAM+:ariane_pkg::BYTESIZE_RAM]),
+      .out(upsized[j*ariane_pkg::BYTESIZE+:ariane_pkg::BYTESIZE]),
       .syndrome_o(syndrome_o[j]),
       .err_o(err_o[j]) // TODO error handling
   );
   
   end
-assign data_o = upsized[DataWidth-1:0];
+assign data_o = (ariane_pkg::SECDED_ENABLED) ? upsized[DataWidth-1:0] : data_i;
 endmodule
 
 

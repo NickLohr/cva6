@@ -320,7 +320,7 @@ module std_cache_subsystem
             "[l1 dcache] reading invalid data on port %01d: data=%016X: data=%X: valid: %b, test: %01X, comp: %b",
             j,
             dcache_req_ports_o[j].data_rdata,
-            dcache_req_ports_o[j].data_rdata,
+            ariane_pkg::BYTESIZE_RAM,
             dcache_req_ports_o[j].data_rvalid,
             |dcache_req_ports_o[j].data_rdata,
             |dcache_req_ports_o[j].data_rdata !==1'hX
