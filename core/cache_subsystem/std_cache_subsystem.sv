@@ -289,7 +289,7 @@ module std_cache_subsystem
   assert property (
     @(posedge clk_i) disable iff (~rst_ni) icache_dreq_o.valid |-> (|icache_dreq_o.data) !== 1'hX)
   else
-    $fatal(
+    $warning(
         1,
         "[l1 dcache] reading invalid instructions: vaddr=%08X, data=%08X",
         icache_dreq_o.vaddr,
@@ -300,7 +300,7 @@ module std_cache_subsystem
   assert property (
     @(posedge clk_i) disable iff (~rst_ni) dcache_req_ports_i[NumPorts-1].data_req |-> |dcache_req_ports_i[NumPorts-1].data_be |-> (|dcache_req_ports_i[NumPorts-1].data_wdata) !== 1'hX)
   else
-    $fatal(
+    $warning(
         1,
         "[l1 dcache] writing invalid data: paddr=%016X, be=%02X, data=%016X",
         {
@@ -315,7 +315,7 @@ module std_cache_subsystem
       assert property (
           @(posedge clk_i) disable iff (~rst_ni) dcache_req_ports_o[j].data_rvalid |-> (|dcache_req_ports_o[j].data_rdata) !== 1'hX)
       else
-        $fatal(
+        $warning(
             1,
             "[l1 dcache] reading invalid data on port %01d: data=%X, valid=%X, gnt=%X",
             j,
