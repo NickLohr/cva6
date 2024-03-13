@@ -33,6 +33,7 @@ module ecc_scrubber_cache
   input  logic   [DCACHE_SET_ASSOC-1:0] intc_req_i,
   input  logic                        intc_we_i,
   input  logic [AddrWidth-1:0] intc_add_i,
+  input  std_cache_pkg::cl_be_ECC_t  intc_be_i,
   input  std_cache_pkg::cache_line_ECC_t intc_wdata_i,
   output std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0]intc_rdata_o,
 
@@ -41,11 +42,12 @@ module ecc_scrubber_cache
   output logic                        bank_we_o,
   output logic [AddrWidth-1:0] bank_add_o,
   output std_cache_pkg::cache_line_ECC_t bank_wdata_o,
-  input  std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0] bank_rdata_i
+  input  std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0] bank_rdata_i,
+  output std_cache_pkg::cl_be_ECC_t bank_be_o
 
 
 );
-// TODO make be
+// TODO make be and 
 // Note TODO, currently is this module deactivted 
 
 
@@ -65,7 +67,7 @@ module ecc_scrubber_cache
   logic [AddrWidth-1:0] working_add_d, working_add_q;
   assign scrub_add = working_add_q;
 
-  assign bank_req_o   = intc_req_i || scrub_req;
+  assign bank_req_o   = ( (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) ? 2**scrub_req : intc_req_i;
   assign intc_rdata_o = bank_rdata_i;
   assign scrub_rdata  = bank_rdata_i;
 
@@ -74,12 +76,15 @@ module ecc_scrubber_cache
     bank_we_o    = intc_we_i;
     bank_add_o   = intc_add_i;
     bank_wdata_o = intc_wdata_i;
+    bank_be_o    = intc_be_i;
 
     // If scrubber active and outside is not, do scrub
-    if ( 0 && (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
+    if (  (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
+     
       bank_we_o    = scrub_we;
       bank_add_o   = scrub_add;
       bank_wdata_o = scrub_wdata;
+      bank_be_o    = '1;
     end
   end
 
@@ -93,6 +98,15 @@ module ecc_scrubber_cache
       .err_o     ( ecc_err_s[j]     )
       );
   end
+
+  always_comb begin
+    if (scrub_rdata[scrub_req_q].data == scrub_wdata.data) begin
+      //$warning(1, "sth went wrong %x %x",scrub_rdata[scrub_req_q].data, scrub_wdata.data);
+    end
+  
+  end
+
+
   assign scrub_wdata.tag = scrub_rdata[scrub_req_q].tag;
   assign scrub_wdata.dirty =scrub_rdata[scrub_req_q].dirty;
   assign scrub_wdata.valid =scrub_rdata[scrub_req_q].valid;
@@ -119,7 +133,7 @@ module ecc_scrubber_cache
 
     end else if (state_s_q == Read) begin
       // Request read to scrub
-      scrub_req = 1'b1;
+      scrub_req = scrub_req_q;
       // Request only active if outside is inactive
       if (intc_req_i == 1'b0) begin
         state_s_d = Write;
@@ -129,7 +143,7 @@ module ecc_scrubber_cache
       if (ecc_err[0] == 1'b0) begin   // No correctable Error            TODO make a loop and not do |ecc_err
         // Return to idle state
         state_s_d       = Idle;
-        scrub_req_d = (scrub_req_q + 1) % DCACHE_SET_ASSOC;
+        scrub_req_d = (scrub_req_q ) % DCACHE_SET_ASSOC;
         if (scrub_req_q== DCACHE_SET_ASSOC-1) begin //count of the req and then afterwards count up the address
           working_add_d = (working_add_q + 1) % BankSize; // increment address
         end
@@ -137,7 +151,7 @@ module ecc_scrubber_cache
 
       end else begin                  // Correctable Error
         // Write corrected version
-        scrub_req = 1'b1;
+        scrub_req = scrub_req_q;
         scrub_we  = 1'b1;
 
         // INTC interference - retry read and write

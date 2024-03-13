@@ -90,6 +90,7 @@ module tag_cmp
 
   //be
   l_be_t be_buffer_d, be_buffer_q;
+  l_be_ECC_t be;
 
   logic [DCACHE_LINE_WIDTH-1:0] be_selector; 
 
@@ -184,7 +185,7 @@ module tag_cmp
     wdata = '0;
     req   = '0;
     addr  = '0;
-    be_o    = '0;
+    be    = '0;
     we    = '0;
     rmw_count_d = '0;
     req_buffer_d = req_buffer_q;
@@ -198,9 +199,9 @@ module tag_cmp
         id_d     = (1'b1 << i);
         gnt_o[i] = 1'b1;
         addr   = addr_i[i];
-        be_o.tag     = be_i[i].tag;
-        be_o.data    = '1; // TODO check if right
-        be_o.vldrty  = be_i[i].vldrty;
+        be.tag     = be_i[i].tag;
+        be.data    = '1; // TODO check if right
+        be.vldrty  = be_i[i].vldrty;
         we     = we_i[i];
         wdata  = wdata_i[i];
 
@@ -226,9 +227,9 @@ module tag_cmp
       we = 1'b1;
       input_buffer_d = input_buffer_q;
       add_buffer_d = add_buffer_q;
-      be_o.data = '1; // set all bytes because we are going to write the whole line again TODO change to 32 bit or so
-      be_o.tag = be_buffer_q.tag;
-      be_o.vldrty = be_buffer_q.vldrty;
+      be.data = '1; // set all bytes because we are going to write the whole line again TODO change to 32 bit or so
+      be.tag = be_buffer_q.tag;
+      be.vldrty = be_buffer_q.vldrty;
       
       
       if (rmw_count_q == '0) begin
@@ -288,12 +289,14 @@ module tag_cmp
         .intc_add_i      ( addr[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET]         ),
         .intc_wdata_i    ( wdata_srub       ),
         .intc_rdata_o    ( rdata       ),
+        .intc_be_i (be),
 
         .bank_req_o      ( req_o   ),
         .bank_we_o       (  we_o   ),
         .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
         .bank_wdata_o    ( wdata_o),
-        .bank_rdata_i    ( rdata_i )
+        .bank_rdata_i    ( rdata_i ),
+        .bank_be_o ( be_o)
       );
 
 

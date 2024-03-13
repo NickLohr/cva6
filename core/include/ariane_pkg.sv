@@ -375,7 +375,7 @@ package ariane_pkg;
 
 
   // SECDEC lengths
-  localparam int SECDEC_BLOCK_SIZE = 64; // 32,64 seem good options
+  localparam int SECDEC_BLOCK_SIZE = 128; // 32,64 seem good options
   localparam int SECDEC_BLOCK_SIZE_ECC = (SECDEC_BLOCK_SIZE+$clog2(SECDEC_BLOCK_SIZE)+2);
   localparam int SECDEC_DIVISIONS_DATA = DCACHE_LINE_WIDTH/SECDEC_BLOCK_SIZE;
   localparam int DCACHE_LINE_WIDTH_ECC = SECDEC_DIVISIONS_DATA*SECDEC_BLOCK_SIZE_ECC;
@@ -383,7 +383,7 @@ package ariane_pkg;
   // SRAM length for dcache
   localparam int DCACHE_LINE_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_LINE_WIDTH_ECC : DCACHE_LINE_WIDTH;
 
-
+  // TODO error after everything (maybe flush)
 
   // ---------------
   // EX Stage
