@@ -52,6 +52,8 @@ module ecc_scrubber_cache
 
 
   logic [SECDEC_DIVISIONS_DATA-1:0][                 1:0] ecc_err_s;
+
+  logic [                 1:0] ecc_err_t;
   logic [1:0] ecc_err;
 
   logic[DCACHE_SET_ASSOC-1:0] scrub_req, scrub_req_d, scrub_req_q;
@@ -99,22 +101,23 @@ module ecc_scrubber_cache
       );
   end
 
-  always_comb begin
-    if (scrub_rdata[scrub_req_q].data == scrub_wdata.data) begin
-      //$warning(1, "sth went wrong %x %x",scrub_rdata[scrub_req_q].data, scrub_wdata.data);
-    end
-  
-  end
+  hsiao_ecc_cor #(
+    .DataWidth (DCACHE_TAG_WIDTH)
+  ) ecc_corrector (
+  .in        ( scrub_rdata[scrub_req_q].tag),
+  .out       ( scrub_wdata.tag),
+  .syndrome_o(),
+  .err_o     ( ecc_err_t     )
+  );
 
 
-  assign scrub_wdata.tag = scrub_rdata[scrub_req_q].tag;
   assign scrub_wdata.dirty =scrub_rdata[scrub_req_q].dirty;
   assign scrub_wdata.valid =scrub_rdata[scrub_req_q].valid;
   
 
 
   
-  assign ecc_err = |ecc_err_s;
+  assign ecc_err = (|ecc_err_s) | ecc_err_t;
 
   always_comb begin : proc_FSM_logic
     state_s_d       = state_s_q;
