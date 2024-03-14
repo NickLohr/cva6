@@ -47,7 +47,7 @@ module ecc_scrubber_cache
 
 
 );
-// TODO make be and 
+// TODO vldrty add per cache
 // Note TODO, currently is this module deactivted 
 
 
@@ -79,7 +79,7 @@ module ecc_scrubber_cache
     bank_be_o    = intc_be_i;
 
     // If scrubber active and outside is not, do scrub
-    if (  (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
+    if ( (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
      
       bank_we_o    = scrub_we;
       bank_add_o   = scrub_add;

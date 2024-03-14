@@ -27,8 +27,6 @@ module tag_cmp
     parameter type                   l_be_t           = std_cache_pkg::cl_be_t,
     parameter type                   l_be_ECC_t           = std_cache_pkg::cl_be_ECC_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8,
-    parameter int unsigned           BLOCK_SIZE   = SECDEC_BLOCK_SIZE,
-    parameter int unsigned           ECC_BLOCK_SIZE   = SECDEC_BLOCK_SIZE_ECC, // TODO
     parameter  int unsigned NumRMWCuts       = 0 // Number of cuts in the read-modify-write path
    ) (
     input logic clk_i,
@@ -54,7 +52,6 @@ module tag_cmp
 );
 
   //assign rdata_o = rdata_i;
-// TODO make nice constants
   typedef enum logic { NORMAL, LOAD_AND_STORE } store_state_e;
   store_state_e store_state_d, store_state_q;
 
@@ -81,18 +78,20 @@ module tag_cmp
   //rdata
   l_data_ECC_t [DCACHE_SET_ASSOC-1:0] decoder_in, rdata;
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded;
-  l_data_t [DCACHE_SET_ASSOC-1:0] rdata_buffer_d;
+  l_data_t [DCACHE_SET_ASSOC-1:0] rdata_buffer_d, rdata_buffer_q;
 
 
-  //rmwcount (not needed technically here)
-  logic  rmw_count_d, rmw_count_q; 
 
 
   //be
-  l_be_t be_buffer_d, be_buffer_q;
+  l_be_ECC_t be_buffer_d, be_buffer_q;
   l_be_ECC_t be;
 
   logic [DCACHE_LINE_WIDTH-1:0] be_selector; 
+
+  // error
+    logic [DCACHE_SET_ASSOC-1:0][SECDEC_DIVISIONS_DATA-1:0][1:0] err_data;
+
 
 
   assign be_selector    = {{8{be_buffer_q.data[15]}},{8{be_buffer_q.data[14]}},
@@ -109,18 +108,18 @@ module tag_cmp
 
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
 
-    assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling (err_data[i][1]) ? '0 :
+    assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
     assign rdata_o[i].dirty = rdata[i].dirty;
     assign rdata_o[i].tag   = rdata[i].tag;
 
 
-    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin // TODO replace 128
+    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
       hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
       ) i_hsio_ecc_dec_rdata (
         .in(decoder_in[i].data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
         .out(loaded[i][j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
         .syndrome_o(),
-        .err_o() // TODO error handling, look in wrapper for info how to
+        .err_o(err_data[i][j]) // TODO error handling, look in wrapper for info how to
       );
     
     end
@@ -173,10 +172,14 @@ module tag_cmp
   end
 
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0;
+    assign hit_way_o[j] = (sel_tag == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; //rdata_i[j].valid
   end
 
-
+  logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
+  logic [SECDEC_BLOCK_SIZE_ECC-1:0] ones_ECC, zeros_ECC;
+  assign ones = '1;
+  assign ones_ECC = '1;
+  assign zeros = '0;
 
   always_comb begin
     store_state_d = NORMAL;
@@ -187,7 +190,6 @@ module tag_cmp
     addr  = '0;
     be    = '0;
     we    = '0;
-    rmw_count_d = '0;
     req_buffer_d = req_buffer_q;
     be_buffer_d = be_buffer_q;
     id_d = id_q;
@@ -200,7 +202,7 @@ module tag_cmp
         gnt_o[i] = 1'b1;
         addr   = addr_i[i];
         be.tag     = be_i[i].tag;
-        be.data    = '1; // TODO check if right
+        be.data    = '0; // TODO check if right
         be.vldrty  = be_i[i].vldrty;
         we     = we_i[i];
         wdata  = wdata_i[i];
@@ -210,14 +212,21 @@ module tag_cmp
         add_buffer_d = addr_i[i];
         input_buffer_d = wdata_i[i];
         req_buffer_d = req_i[i];
+        for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
+            if (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
+              be.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
+              //be_buffer_d.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
+            end
+        end
 
+        // && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != 16'b0000_0000_0000_0000
+        for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
+          if ((req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != ones  && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros) & we_i[i]) begin // TODO decrease size
+            store_state_d = LOAD_AND_STORE; // write requests which need another cycle
+            we = 1'b0;
 
-      
-        if ((req_i[i]) & (be_i[i].data != 16'b1111111111111111) & we_i[i]) begin // TODO decrease size
-          store_state_d = LOAD_AND_STORE; // write requests which need another cycle
-          we = 1'b0;
-          rmw_count_d = '0;
-        end 
+          end
+        end
         if (req_i[i]) break;
       
       end
@@ -227,19 +236,20 @@ module tag_cmp
       we = 1'b1;
       input_buffer_d = input_buffer_q;
       add_buffer_d = add_buffer_q;
-      be.data = '1; // set all bytes because we are going to write the whole line again TODO change to 32 bit or so
+      be.data = '0; // set all bytes because we are going to write the whole line again TODO change to 32 bit or so 
       be.tag = be_buffer_q.tag;
       be.vldrty = be_buffer_q.vldrty;
-      
-      
-      if (rmw_count_q == '0) begin
-        req = req_buffer_q;
 
-      end else begin
-        req = '0;
-        rmw_count_d = rmw_count_q-1; // In case of multiple cycle wait time, decrease it every cycle it waited.
-        store_state_d = LOAD_AND_STORE;
-      end
+      for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
+            if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
+              be.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
+              //be_buffer_d.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
+            end
+        end
+
+      req = req_buffer_q;
+
+
     end
 
 
@@ -271,7 +281,7 @@ module tag_cmp
 
 
       ecc_scrubber_cache #(
-        .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), // TODO
+        .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), 
         .UseExternalECC ( 0              ),
         .DataWidth      ( DCACHE_LINE_WIDTH_ECC ),
         .AddrWidth(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET),
@@ -309,16 +319,16 @@ module tag_cmp
       add_buffer_q   <= '0;
       input_buffer_q <= '0;
       be_buffer_q    <= '0;
-      rmw_count_q    <= '0;
       req_buffer_q    <= '0;
+      rdata_buffer_q  <= '0;
     end else begin
       id_q <= id_d;
       add_buffer_q   <= add_buffer_d;
       store_state_q  <= store_state_d;
       input_buffer_q <= input_buffer_d;
       be_buffer_q    <= be_buffer_d;
-      rmw_count_q    <= rmw_count_d;
       req_buffer_q   <= req_buffer_d;
+      rdata_buffer_q <= rdata_buffer_d;
     end
   end
 
