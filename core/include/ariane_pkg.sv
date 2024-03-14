@@ -379,9 +379,12 @@ package ariane_pkg;
   localparam int SECDEC_BLOCK_SIZE_ECC = (SECDEC_BLOCK_SIZE+$clog2(SECDEC_BLOCK_SIZE)+2);
   localparam int SECDEC_DIVISIONS_DATA = DCACHE_LINE_WIDTH/SECDEC_BLOCK_SIZE;
   localparam int DCACHE_LINE_WIDTH_ECC = SECDEC_DIVISIONS_DATA*SECDEC_BLOCK_SIZE_ECC;
+  localparam int DCACHE_TAG_WIDTH_ECC = DCACHE_TAG_WIDTH+$clog2(DCACHE_TAG_WIDTH)+2;
 
-  // SRAM length for dcache
+  // SRAM length for dcache 
+  // TODO add this to code
   localparam int DCACHE_LINE_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_LINE_WIDTH_ECC : DCACHE_LINE_WIDTH;
+  localparam int DCACHE_TAG_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_LINE_WIDTH_ECC : DCACHE_LINE_WIDTH;
 
   // TODO error after everything (maybe flush)
 

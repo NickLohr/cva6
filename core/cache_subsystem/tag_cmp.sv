@@ -72,7 +72,8 @@ module tag_cmp
   l_data_t to_store, wdata;
   
   logic [DCACHE_LINE_WIDTH-1:0] to_store_data;
-  logic [DCACHE_LINE_WIDTH-1:0] sel_loaded;
+  logic [DCACHE_LINE_WIDTH-1:0] sel_loaded_data;
+  logic [DCACHE_TAG_WIDTH-1:0] sel_loaded_tag;
   l_data_t input_buffer_d, input_buffer_q;
 
   //rdata
@@ -87,14 +88,16 @@ module tag_cmp
   l_be_ECC_t be_buffer_d, be_buffer_q;
   l_be_ECC_t be;
 
-  logic [DCACHE_LINE_WIDTH-1:0] be_selector; 
+  logic [DCACHE_LINE_WIDTH-1:0] be_selector_data;  
+  logic [DCACHE_TAG_WIDTH-1:0] be_selector_tag; 
 
   // error
-    logic [DCACHE_SET_ASSOC-1:0][SECDEC_DIVISIONS_DATA-1:0][1:0] err_data;
+  logic [DCACHE_SET_ASSOC-1:0][SECDEC_DIVISIONS_DATA-1:0][1:0] err_data;
+  logic [DCACHE_SET_ASSOC-1:0][1:0] err_tag;
 
 
 
-  assign be_selector    = {{8{be_buffer_q.data[15]}},{8{be_buffer_q.data[14]}},
+  assign be_selector_data    = {{8{be_buffer_q.data[15]}},{8{be_buffer_q.data[14]}},
                            {8{be_buffer_q.data[13]}},{8{be_buffer_q.data[12]}},
                            {8{be_buffer_q.data[11]}},{8{be_buffer_q.data[10]}},
                            {8{be_buffer_q.data[9]}},{8{be_buffer_q.data[8]}},
@@ -103,6 +106,12 @@ module tag_cmp
                            {8{be_buffer_q.data[3]}},{8{be_buffer_q.data[2]}},
                            {8{be_buffer_q.data[1]}},{8{be_buffer_q.data[0]}}}; // how I understand this, it checks which bytes of the buffershould be selected, if cacheline changes this must too
 
+
+  assign be_selector_tag    = {{4{be_buffer_q.tag[5]}},{8{be_buffer_q.tag[4]}},
+                           {8{be_buffer_q.tag[3]}},{8{be_buffer_q.tag[2]}},
+                           {8{be_buffer_q.tag[1]}},{8{be_buffer_q.tag[0]}}};
+
+
   assign decoder_in = store_state_q == NORMAL ? rdata : rdata;
 
 
@@ -110,9 +119,16 @@ module tag_cmp
 
     assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
     assign rdata_o[i].dirty = rdata[i].dirty;
-    assign rdata_o[i].tag   = rdata[i].tag;
 
-
+    hsiao_ecc_dec #(.DataWidth(DCACHE_TAG_WIDTH)
+      ) i_hsio_ecc_dec_rdata (
+        .in(rdata[i].tag),
+        .out(rdata_o[i].tag),
+        .syndrome_o(),
+        .err_o(err_tag[i]) // TODO error handling, look in wrapper for info how to
+      );
+    
+    
     for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
       hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
       ) i_hsio_ecc_dec_rdata (
@@ -129,16 +145,19 @@ module tag_cmp
     assign rdata_buffer_d = rdata_o;
 
    always_comb begin
-    sel_loaded = '0;
+    sel_loaded_data = '0;
+    sel_loaded_tag = '0;
     for (int unsigned i = 0; i< DCACHE_SET_ASSOC; i++) if (req_buffer_q[i]) begin
-      sel_loaded=loaded[i];
+      sel_loaded_data=rdata_o[i].data;
+      sel_loaded_tag=rdata_o[i].tag;
       break;
     end
 
+
   end
-    assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector & input_buffer_q.data) | (~be_selector & sel_loaded); // take the bits from the input which should be written and otherwise take the stored values
-  
-  always_comb begin
+  assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector_data & input_buffer_q.data) | (~be_selector_data & sel_loaded_data); // take the bits from the input which should be written and otherwise take the stored values
+  assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_data & input_buffer_q.tag) | (~be_selector_data & sel_loaded_tag);
+  always_comb begin // TODO? with tag
     to_store_data ='0;
     for (int unsigned i = 0; i< DCACHE_LINE_WIDTH; i++)begin
       if (to_store.data[i]==1'b1)begin
@@ -151,13 +170,21 @@ module tag_cmp
     hsiao_ecc_enc #(
       .DataWidth (SECDEC_BLOCK_SIZE)
       
-    ) ecc_encode (
+    ) j_ecc_encode (
       .in  (to_store_data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]  ),
       .out ( wdata_srub.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] )
     );
 
   end
-  assign wdata_srub.tag = store_state_q == NORMAL ? wdata.tag : input_buffer_q.tag;
+  hsiao_ecc_enc #(
+      .DataWidth (DCACHE_TAG_WIDTH)
+      
+  ) ecc_encode_tag(
+      .in(to_store.tag),
+      .out(wdata_srub.tag)
+
+  );
+
   assign wdata_srub.dirty = store_state_q == NORMAL ? wdata.dirty : input_buffer_q.dirty;
   assign wdata_srub.valid = store_state_q == NORMAL ? wdata.valid : input_buffer_q.valid;
 
@@ -165,14 +192,24 @@ module tag_cmp
   // one hot encoded
   logic [NR_PORTS-1:0] id_d, id_q;
   logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
+  logic [DCACHE_TAG_WIDTH_ECC-1:0] sel_tag_ECC;
 
   always_comb begin : tag_sel
     sel_tag = '0;
     for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
   end
 
+
+  hsiao_ecc_enc #(
+    .DataWidth (DCACHE_TAG_WIDTH)  
+  ) ecc_encode_sel_tag(
+      .in(sel_tag),
+      .out(sel_tag_ECC)
+
+  );
+
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; //rdata_i[j].valid
+    assign hit_way_o[j] = (sel_tag_ECC == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; //TODO make rdata_i
   end
 
   logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
@@ -201,7 +238,7 @@ module tag_cmp
         id_d     = (1'b1 << i);
         gnt_o[i] = 1'b1;
         addr   = addr_i[i];
-        be.tag     = be_i[i].tag;
+        be.tag     = (be_i[i].tag=='0)? '0 : '1;
         be.data    = '0; // TODO check if right
         be.vldrty  = be_i[i].vldrty;
         we     = we_i[i];
@@ -215,11 +252,9 @@ module tag_cmp
         for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
             if (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
               be.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
-              //be_buffer_d.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
             end
         end
 
-        // && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != 16'b0000_0000_0000_0000
         for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
           if ((req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != ones  && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros) & we_i[i]) begin // TODO decrease size
             store_state_d = LOAD_AND_STORE; // write requests which need another cycle
@@ -236,14 +271,13 @@ module tag_cmp
       we = 1'b1;
       input_buffer_d = input_buffer_q;
       add_buffer_d = add_buffer_q;
-      be.data = '0; // set all bytes because we are going to write the whole line again TODO change to 32 bit or so 
-      be.tag = be_buffer_q.tag;
+      be.data = '0; 
+      be.tag = (be_buffer_q.tag=='0)? '0 : '1; // set to 1 bc alwazs read/write whole tag
       be.vldrty = be_buffer_q.vldrty;
 
       for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
             if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
               be.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
-              //be_buffer_d.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] = ones_ECC;
             end
         end
 

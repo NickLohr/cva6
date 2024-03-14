@@ -201,7 +201,7 @@ module std_nbdcache
     );
 
     sram #(
-        .DATA_WIDTH(DCACHE_TAG_WIDTH),
+        .DATA_WIDTH(DCACHE_TAG_WIDTH_ECC),
         .NUM_WORDS (DCACHE_NUM_WORDS)
     ) tag_sram (
         .req_i  (req_ram[i]),
