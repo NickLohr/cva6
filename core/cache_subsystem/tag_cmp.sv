@@ -77,7 +77,7 @@ module tag_cmp
   l_data_t input_buffer_d, input_buffer_q;
 
   //rdata
-  l_data_ECC_t [DCACHE_SET_ASSOC-1:0] decoder_in, rdata;
+  l_data_ECC_t [DCACHE_SET_ASSOC-1:0] rdata;
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded;
   l_data_t [DCACHE_SET_ASSOC-1:0] rdata_buffer_d, rdata_buffer_q;
 
@@ -112,7 +112,6 @@ module tag_cmp
                            {8{be_buffer_q.tag[1]}},{8{be_buffer_q.tag[0]}}};
 
 
-  assign decoder_in = store_state_q == NORMAL ? rdata : rdata;
 
 
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
@@ -132,7 +131,7 @@ module tag_cmp
     for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
       hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
       ) i_hsio_ecc_dec_rdata (
-        .in(decoder_in[i].data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
+        .in(rdata[i].data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
         .out(loaded[i][j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
         .syndrome_o(),
         .err_o(err_data[i][j]) // TODO error handling, look in wrapper for info how to
@@ -256,13 +255,13 @@ module tag_cmp
         end
 
         for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
-          if ((req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != ones  && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros) & we_i[i]) begin // TODO decrease size
+          if ((|req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] !=zeros&&be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != ones)  & we_i[i]) begin // TODO decrease size
             store_state_d = LOAD_AND_STORE; // write requests which need another cycle
             we = 1'b0;
-
+	    gnt_o[i] = 1'b0;
           end
         end
-        if (req_i[i]) break;
+        if (|req_i[i]) break;
       
       end
     end
@@ -271,6 +270,11 @@ module tag_cmp
       we = 1'b1;
       input_buffer_d = input_buffer_q;
       add_buffer_d = add_buffer_q;
+      for (int unsigned i=0; i<NR_PORTS; i++) begin
+	if (id_q[i] == 1'b1) begin
+		gnt_o[i] = 1'b1;
+	end
+      end
       be.data = '0; 
       be.tag = (be_buffer_q.tag=='0)? '0 : '1; // set to 1 bc alwazs read/write whole tag
       be.vldrty = be_buffer_q.vldrty;
@@ -304,13 +308,6 @@ module tag_cmp
 `endif
   end
 
-//assign we_o = we;
-//assign req_o = req;
-//assign addr_o = addr;
-//assign wdata_o = wdata_srub;
-//assign rdata = rdata_i;
-
-
 
 
 
@@ -333,7 +330,7 @@ module tag_cmp
         .intc_add_i      ( addr[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET]         ),
         .intc_wdata_i    ( wdata_srub       ),
         .intc_rdata_o    ( rdata       ),
-        .intc_be_i (be),
+        .intc_be_i 	  (be),
 
         .bank_req_o      ( req_o   ),
         .bank_we_o       (  we_o   ),

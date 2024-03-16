@@ -69,7 +69,7 @@ module ecc_scrubber_cache
   logic [AddrWidth-1:0] working_add_d, working_add_q;
   assign scrub_add = working_add_q;
 
-  assign bank_req_o   = ( (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) ? 2**scrub_req : intc_req_i;
+  assign bank_req_o   = (scrub_trigger_i && (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) ? 2**scrub_req : intc_req_i;
   assign intc_rdata_o = bank_rdata_i;
   assign scrub_rdata  = bank_rdata_i;
 
@@ -81,7 +81,7 @@ module ecc_scrubber_cache
     bank_be_o    = intc_be_i;
 
     // If scrubber active and outside is not, do scrub
-    if ( (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
+    if (scrub_trigger_i && (state_s_q == Read || state_s_q == Write) && (|intc_req_i) == 1'b0) begin
      
       bank_we_o    = scrub_we;
       bank_add_o   = scrub_add;
