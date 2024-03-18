@@ -33,17 +33,17 @@ module ecc_scrubber_cache
   input  logic   [DCACHE_SET_ASSOC-1:0] intc_req_i,
   input  logic                        intc_we_i,
   input  logic [AddrWidth-1:0] intc_add_i,
-  input  std_cache_pkg::cl_be_ECC_t  intc_be_i,
-  input  std_cache_pkg::cache_line_ECC_t intc_wdata_i,
-  output std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0]intc_rdata_o,
+  input  std_cache_pkg::cl_be_SRAM_t  intc_be_i,
+  input  std_cache_pkg::cache_line_SRAM_t intc_wdata_i,
+  output std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0]intc_rdata_o,
 
   // Output directly to bank
   output logic [DCACHE_SET_ASSOC-1:0] bank_req_o,
   output logic                        bank_we_o,
   output logic [AddrWidth-1:0] bank_add_o,
-  output std_cache_pkg::cache_line_ECC_t bank_wdata_o,
-  input  std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0] bank_rdata_i,
-  output std_cache_pkg::cl_be_ECC_t bank_be_o
+  output std_cache_pkg::cache_line_SRAM_t bank_wdata_o,
+  input  std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0] bank_rdata_i,
+  output std_cache_pkg::cl_be_SRAM_t bank_be_o
 
 
 );
@@ -59,8 +59,8 @@ module ecc_scrubber_cache
   logic[DCACHE_SET_ASSOC-1:0] scrub_req, scrub_req_d, scrub_req_q;
   logic                        scrub_we;
   logic [AddrWidth-1:0] scrub_add;
-  std_cache_pkg::cache_line_ECC_t scrub_wdata;
-  std_cache_pkg::cache_line_ECC_t [DCACHE_SET_ASSOC-1:0] scrub_rdata;
+  std_cache_pkg::cache_line_SRAM_t scrub_wdata;
+  std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0] scrub_rdata;
 
   typedef enum logic [2:0] {Idle, Read, Write} scrub_state_e;
 

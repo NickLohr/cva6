@@ -384,7 +384,8 @@ package ariane_pkg;
   // SRAM length for dcache 
   // TODO add this to code
   localparam int DCACHE_LINE_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_LINE_WIDTH_ECC : DCACHE_LINE_WIDTH;
-  localparam int DCACHE_TAG_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_LINE_WIDTH_ECC : DCACHE_LINE_WIDTH;
+  localparam int DCACHE_TAG_WIDTH_SRAM = SECDEC_ENABLED ? DCACHE_TAG_WIDTH_ECC : DCACHE_TAG_WIDTH;
+  localparam int BLOCK_SIZE_SRAM = SECDEC_ENABLED ? SECDEC_BLOCK_SIZE_ECC : SECDEC_BLOCK_SIZE;
 
   // TODO error after everything (maybe flush)
 

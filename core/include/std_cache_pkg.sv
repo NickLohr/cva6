@@ -76,11 +76,11 @@ package std_cache_pkg;
 
   // TODO nicely
   typedef struct packed {
-    logic [ariane_pkg::DCACHE_TAG_WIDTH_ECC-1:0]        tag;    // tag array
-    logic [ariane_pkg::DCACHE_LINE_WIDTH_ECC-1:0]       data;   // data array
+    logic [ariane_pkg::DCACHE_TAG_WIDTH_SRAM-1:0]        tag;    // tag array
+    logic [ariane_pkg::DCACHE_LINE_WIDTH_SRAM-1:0]       data;   // data array
     logic                                           valid;  // state array
     logic [(ariane_pkg::DCACHE_LINE_WIDTH+7)/8-1:0] dirty;  // state array
-  } cache_line_ECC_t;
+  } cache_line_SRAM_t;
 
   // cache line byte enable
   typedef struct packed {
@@ -89,10 +89,10 @@ package std_cache_pkg;
     vldrty_t [ariane_pkg::DCACHE_SET_ASSOC-1:0]     vldrty;  // bit enable into state array
   } cl_be_t;
 typedef struct packed {
-      logic [(ariane_pkg::DCACHE_TAG_WIDTH_ECC+7)/8-1:0]  tag;     // byte enable into tag array
-    logic [(ariane_pkg::DCACHE_LINE_WIDTH_ECC+7)/8-1:0] data;    // byte enable into data array
+      logic [(ariane_pkg::DCACHE_TAG_WIDTH_SRAM+7)/8-1:0]  tag;     // byte enable into tag array
+    logic [(ariane_pkg::DCACHE_LINE_WIDTH_SRAM+7)/8-1:0] data;    // byte enable into data array
     vldrty_t [ariane_pkg::DCACHE_SET_ASSOC-1:0]     vldrty;  // bit enable into state array
-  } cl_be_ECC_t;
+  } cl_be_SRAM_t;
 
   // convert one hot to bin for -> needed for cache replacement
   function automatic logic [DCACHE_SET_ASSOC_WIDTH-1:0] one_hot_to_bin(
