@@ -91,7 +91,7 @@ module std_nbdcache
   cache_line_SRAM_t                                                  wdata_ram;
   cache_line_SRAM_t [  DCACHE_SET_ASSOC-1:0]                         rdata_ram;
   cl_be_SRAM_t                                                       be_ram;
-  vldrty_t     [  DCACHE_SET_ASSOC-1:0]                         be_valid_dirty_ram;
+  vldrty_ECC_t     [  DCACHE_SET_ASSOC-1:0]                         be_valid_dirty_ram;
 
   // Busy signals
   logic                                                         miss_handler_busy;
@@ -222,19 +222,13 @@ module std_nbdcache
   // Valid/Dirty Regs
   // ----------------
 
-  vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_wdata, dirty_rdata;
+  vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_wdata, dirty_rdata;
 
-  for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin
-    assign dirty_wdata[i]              = '{dirty: wdata_ram.dirty, valid: wdata_ram.valid};
-    assign rdata_ram[i].dirty          = dirty_rdata[i].dirty;
-    assign rdata_ram[i].valid          = dirty_rdata[i].valid;
-    assign be_valid_dirty_ram[i].valid = be_ram.vldrty[i].valid;
-    assign be_valid_dirty_ram[i].dirty = be_ram.vldrty[i].dirty;
-  end
+
 
   sram #(
       .USER_WIDTH(1),
-      .DATA_WIDTH(DCACHE_SET_ASSOC * $bits(vldrty_t)),
+      .DATA_WIDTH(DCACHE_SET_ASSOC * $bits(vldrty_ECC_t)),
       .BYTE_WIDTH(1),
       .NUM_WORDS (DCACHE_NUM_WORDS)
   ) valid_dirty_sram (
@@ -275,6 +269,10 @@ module std_nbdcache
       .we_o   (we_ram),
       .be_o   (be_ram),
       .rdata_i(rdata_ram),
+
+      .dirty_rdata_i(dirty_rdata),
+      .be_valid_dirty_ram_o(be_valid_dirty_ram),
+      .wdata_dirty_o(dirty_wdata),
       .*
   );
 

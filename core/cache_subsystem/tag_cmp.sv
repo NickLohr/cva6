@@ -48,8 +48,20 @@ module tag_cmp
     output l_data_SRAM_t                        wdata_o,
     output logic                           we_o,
     output l_be_SRAM_t                          be_o,
-    input  l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata_i
+    input  l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata_i, 
+
+    input vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata_i,
+    output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram_o,
+    output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] wdata_dirty_o
 );
+
+vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
+     vldrty_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram;
+     vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty;
+
+     vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata2;
+     vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram2;
+     vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty2;
 
   //assign rdata_o = rdata_i;
   typedef enum logic { NORMAL, LOAD_AND_STORE } store_state_e;
@@ -111,14 +123,68 @@ module tag_cmp
                            {8{be_buffer_q.tag[3]}},{8{be_buffer_q.tag[2]}},
                            {8{be_buffer_q.tag[1]}},{8{be_buffer_q.tag[0]}}};
 
+                           // TODO add scrubber dirty valid function
+
+  vldrty_t [DCACHE_SET_ASSOC-1:0] a;
+  vldrty_t [DCACHE_SET_ASSOC-1:0] b;
+  for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin
+
+    assign be_valid_dirty_ram[i].valid = be_o.vldrty[i].valid;
+    assign be_valid_dirty_ram[i].dirty = be_o.vldrty[i].dirty;
+
+
+    assign wdata_dirty[i].dirty              = store_state_q == NORMAL ? wdata.dirty : input_buffer_q.dirty;;
+    assign wdata_dirty[i].valid              = store_state_q == NORMAL ? wdata.valid : input_buffer_q.valid;;
+
+
+    assign rdata_o[i].dirty          = dirty_rdata[i].dirty;
+    assign rdata_o[i].valid          = dirty_rdata[i].valid;
+        
+
+
+  end
+  // TODO make ECC
+  assign wdata_dirty2 = (be_valid_dirty_ram& wdata_dirty) | (~be_valid_dirty_ram& dirty_rdata);
+  assign dirty_rdata2 = dirty_rdata_i;
+  for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin
+      assign be_valid_dirty_ram_o[i] = store_state_q==NORMAL ? (be_valid_dirty_ram[i]=='0 ? '0 : '1) : '1 ; // TODO check if makes sense
+
+  end
+
+  for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
+
+      //assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
+      //assign rdata_o[i].dirty = rdata[i].dirty;
+
+      hsiao_ecc_dec #(.DataWidth( $bits(vldrty_t))
+        ) i_hsio_ecc_dec_rdata (
+          .in(dirty_rdata2[i]),
+          .out(dirty_rdata[i]),
+          .syndrome_o(),
+          .err_o() // TODO error handling, look in wrapper for info how to
+        );
+
+        hsiao_ecc_enc #(
+        .DataWidth ($bits(vldrty_t))
+        
+        ) j_ecc_encode (
+          .in  (wdata_dirty2[i] ),
+          .out (wdata_dirty_o[i] )
+        );
+
+
+  end
+
+
+
 
 
   if (SECDEC_ENABLED) begin
     // read 
     for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
 
-      assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
-      assign rdata_o[i].dirty = rdata[i].dirty;
+      //assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
+      //assign rdata_o[i].dirty = rdata[i].dirty;
 
       hsiao_ecc_dec #(.DataWidth(DCACHE_TAG_WIDTH)
         ) i_hsio_ecc_dec_rdata (
@@ -146,6 +212,7 @@ module tag_cmp
     always_comb begin
       sel_loaded_data = '0;
       sel_loaded_tag = '0;
+
       for (int unsigned i = 0; i< DCACHE_SET_ASSOC; i++) if (req_buffer_q[i]) begin
         sel_loaded_data=rdata_o[i].data;
         sel_loaded_tag=rdata_o[i].tag;
@@ -183,11 +250,9 @@ module tag_cmp
         .out(wdata_scrub.tag)
 
     );
-    assign wdata_scrub.dirty = store_state_q == NORMAL ? wdata.dirty : input_buffer_q.dirty;
-    assign wdata_scrub.valid = store_state_q == NORMAL ? wdata.valid : input_buffer_q.valid;
 
     assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector_data & input_buffer_q.data) | (~be_selector_data & sel_loaded_data); // take the bits from the input which should be written and otherwise take the stored values
-    assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_data & input_buffer_q.tag) | (~be_selector_data & sel_loaded_tag);
+    assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_tag & input_buffer_q.tag) | (~be_selector_tag & sel_loaded_tag);
 
 
   end
@@ -221,7 +286,7 @@ module tag_cmp
   end
 
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag_SRAM == rdata_i[j].tag) ? rdata_i[j].valid : 1'b0; //TODO make rdata_i
+    assign hit_way_o[j] = (sel_tag_SRAM == rdata_i[j].tag) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i
   end
 
   logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
@@ -251,9 +316,7 @@ module tag_cmp
         gnt_o[i] = 1'b1;
         addr   = addr_i[i];
 
-        be.tag     = (be_i[i].tag=='0)? '0 : '1;
-        be.data    = '0; // TODO check if right
-        be.vldrty  = be_i[i].vldrty;
+
         we     = we_i[i];
         wdata  = wdata_i[i];
 
@@ -263,6 +326,9 @@ module tag_cmp
         input_buffer_d = wdata_i[i];
         req_buffer_d = req_i[i];
         if (SECDEC_ENABLED) begin
+                  be.tag     = (be_i[i].tag=='0)? '0 : '1;
+        be.data    = '0; // TODO check if right
+        be.vldrty  = be_i[i].vldrty;
           for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
               if (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
                 be.data[j*BLOCK_SIZE_SRAM+:BLOCK_SIZE_SRAM] = ones_SRAM;
@@ -276,6 +342,15 @@ module tag_cmp
               gnt_o[i] = 1'b0;
             end
           end
+          // & (be_i[i].vldrty !='0 && be_i[i].vldrty != '1) 
+          for (int unsigned j=0; j<DCACHE_SET_ASSOC; j++)begin
+            if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].vldrty[j] !='0 && be_i[i].vldrty[j] != '1)  & we_i[i]) begin // TODO decrease size
+              store_state_d = LOAD_AND_STORE; // write requests which need another cycle
+              we = 1'b0;
+              gnt_o[i] = 1'b0;
+            end
+          end
+
         end
         else begin
           be = be_i[i];
@@ -387,6 +462,9 @@ module tag_cmp
       be_buffer_q    <= be_buffer_d;
       req_buffer_q   <= req_buffer_d;
       rdata_buffer_q <= rdata_buffer_d;
+     //if (be_valid_dirty_ram!='0 && we_o) begin
+      //  $display(1, "BE: %x, DATA: %x, STATE=%x, LOADED: %x", be_valid_dirty_ram_o, wdata_dirty_o, store_state_q, dirty_rdata_i);
+      //end
     end
   end
 

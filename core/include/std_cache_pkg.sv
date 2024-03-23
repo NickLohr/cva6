@@ -67,6 +67,10 @@ package std_cache_pkg;
   } vldrty_t;
 
   typedef struct packed {
+    logic [$bits(vldrty_t)+2+$clog2($bits(vldrty_t))] data;
+  } vldrty_ECC_t;
+
+  typedef struct packed {
     logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0]        tag;    // tag array
     logic [ariane_pkg::DCACHE_LINE_WIDTH-1:0]       data;   // data array
     logic                                           valid;  // state array
