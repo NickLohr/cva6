@@ -4,7 +4,7 @@
 // compliance with the License.  You may obtain a copy of the License at
 // http://solderpad.org/licenses/SHL-0.51. Unless required by applicable law
 // or agreed to in writing, software, hardware and materials distributed under
-// this License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// this License is distDCACHE_TAG_WIDTH_SRAMributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 // Author: Florian Zaruba <zarubaf@iis.ee.ethz.ch>
@@ -27,7 +27,9 @@ module tag_cmp
     parameter type                   l_be_t           = std_cache_pkg::cl_be_t,
     parameter type                   l_be_SRAM_t           = std_cache_pkg::cl_be_SRAM_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8,
-    parameter  int unsigned NumRMWCuts       = 0 // Number of cuts in the read-modify-write path
+    parameter  int unsigned NumRMWCuts       = 0, // Number of cuts in the read-modify-write path
+    parameter type axi_req_t = logic,
+    parameter type axi_rsp_t = logic
    ) (
     input logic clk_i,
     input logic rst_ni,
@@ -86,12 +88,12 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   logic [DCACHE_LINE_WIDTH-1:0] to_store_data;
   logic [DCACHE_LINE_WIDTH-1:0] sel_loaded_data;
   logic [DCACHE_TAG_WIDTH-1:0] sel_loaded_tag;
-  l_data_t input_buffer_d, input_buffer_q;
+  l_data_t input_buffer, output_buffer;
+  l_data_SRAM_t input_buffer_d, input_buffer_q;
 
   //rdata
   l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata;
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded;
-  l_data_t [DCACHE_SET_ASSOC-1:0] rdata_buffer_d, rdata_buffer_q;
 
 
 
@@ -105,8 +107,9 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   // error
   logic [DCACHE_SET_ASSOC-1:0][SECDEC_DIVISIONS_DATA-1:0][1:0] err_data;
-  logic [DCACHE_SET_ASSOC-1:0][1:0] err_tag;
-
+  logic [DCACHE_SET_ASSOC-1:0][1:0] err_tag, err_vldrty;
+  logic [SECDEC_DIVISIONS_DATA-1:0][1:0] err_input_buffer;
+  logic [1:0] err_input_tag;
 
 
   assign be_selector_data    = {{8{be_buffer_q.data[15]}},{8{be_buffer_q.data[14]}},
@@ -161,7 +164,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
           .in(dirty_rdata2[i]),
           .out(dirty_rdata[i]),
           .syndrome_o(),
-          .err_o() // TODO error handling, look in wrapper for info how to
+          .err_o(err_vldrty[i]) // TODO error handling, look in wrapper for info how to
         );
 
         hsiao_ecc_enc #(
@@ -222,7 +225,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     end
 
 
-    always_comb begin // TODO? remove?
+    always_comb begin 
       to_store_data ='0;
       for (int unsigned i = 0; i< DCACHE_LINE_WIDTH; i++)begin
         if (to_store.data[i]==1'b1)begin
@@ -232,6 +235,9 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
     end
     // write
+
+
+
     for (genvar j=0; j<SECDEC_DIVISIONS_DATA;j++)begin
       hsiao_ecc_enc #(
         .DataWidth (SECDEC_BLOCK_SIZE)
@@ -251,8 +257,8 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
     );
 
-    assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector_data & input_buffer_q.data) | (~be_selector_data & sel_loaded_data); // take the bits from the input which should be written and otherwise take the stored values
-    assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_tag & input_buffer_q.tag) | (~be_selector_tag & sel_loaded_tag);
+    assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector_data & output_buffer.data) | (~be_selector_data & sel_loaded_data); // take the bits from the input which should be written and otherwise take the stored values
+    assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_tag & output_buffer.tag) | (~be_selector_tag & sel_loaded_tag);
 
 
   end
@@ -261,7 +267,6 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     assign rdata_o = rdata;
   end
 
-    assign rdata_buffer_d = rdata_o;
 
   // one hot encoded
   logic [NR_PORTS-1:0] id_d, id_q;
@@ -281,12 +286,83 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         .out(sel_tag_SRAM)
 
     );
+
+
+    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
+        hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
+        ) i_ecc_decode_buffer_data (
+          .in(input_buffer_q.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
+          .out(output_buffer.data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
+          .syndrome_o(),
+          .err_o(err_input_buffer[j]) // TODO error handling, look in wrapper for info how to
+        );
+      
+      end
+    
+
+    hsiao_ecc_dec #(.DataWidth(DCACHE_TAG_WIDTH)
+    ) ecc_decode_buffer_tag (
+      .in(input_buffer_q.tag),
+      .out(output_buffer.tag),
+      .syndrome_o(),
+      .err_o(err_input_tag) // TODO error handling, look in wrapper for info how to
+    );
+
+    logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
+    logic [DCACHE_LINE_WIDTH_SRAM-1:0] input_buffer_data;
+    logic [DCACHE_LINE_WIDTH-1:0] input_buffer_data_full;
+
+    hsiao_ecc_enc #(
+      .DataWidth (DCACHE_TAG_WIDTH)  
+    ) ecc_encode_buffer_tag(
+      .in(input_buffer.tag),
+      .out(input_buffer_tag)
+
+    );
+    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
+    hsiao_ecc_enc #(
+      .DataWidth (SECDEC_BLOCK_SIZE)  
+    ) ecc_encode_buffer_data(
+      .in(input_buffer_data_full[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
+      .out(input_buffer_data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC])
+
+    );
+    end
+
+    always_comb begin
+          input_buffer_data_full ='0;
+      for (int unsigned i = 0; i< DCACHE_LINE_WIDTH; i++)begin
+        if (input_buffer.data[i]==1'b1)begin
+          input_buffer_data_full[i] = 1'b1;
+        end
+      end
+      if (store_state_q == NORMAL) begin
+        input_buffer_d.valid = input_buffer.valid;
+        input_buffer_d.dirty = input_buffer.dirty;
+        input_buffer_d.data = input_buffer_data;
+        input_buffer_d.tag = input_buffer_tag;
+            
+      end
+      else begin
+        input_buffer_d = input_buffer_q;
+      end
+
+
+    end
+
+     
+
+
   end else begin
     assign sel_tag_SRAM = sel_tag;
+    assign input_buffer_d = (store_state_q == NORMAL)? input_buffer: input_buffer_q;
   end
 
+
+  logic [DCACHE_SET_ASSOC-1:0][DCACHE_TAG_WIDTH_SRAM] tag_xor;
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
-    assign hit_way_o[j] = (sel_tag_SRAM == rdata_i[j].tag) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i
+    assign tag_xor[j] = sel_tag_SRAM ^ rdata_i[j].tag;
+    assign hit_way_o[j] = ( $countones(tag_xor[j])<=1) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i, 
   end
 
   logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
@@ -323,7 +399,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         // Store in buffer in case of load and store
         be_buffer_d = be_i[i];
         add_buffer_d = addr_i[i];
-        input_buffer_d = wdata_i[i];
+        input_buffer = wdata_i[i];
         req_buffer_d = req_i[i];
         if (SECDEC_ENABLED) begin
                   be.tag     = (be_i[i].tag=='0)? '0 : '1;
@@ -363,7 +439,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     else begin // happens only if SECDEC_ENABLED
       addr = add_buffer_q;
       we = 1'b1;
-      input_buffer_d = input_buffer_q;
+      //input_buffer_d = input_buffer_q;
       add_buffer_d = add_buffer_q;
       for (int unsigned i=0; i<NR_PORTS; i++) begin
         if (id_q[i] == 1'b1) begin
@@ -404,8 +480,9 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   end
 
 
-
+  logic [1:0] err_scrub; 
   if (SECDEC_ENABLED) begin
+    
       ecc_scrubber_cache #(
         .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), 
         .UseExternalECC ( 0              ),
@@ -417,8 +494,8 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         .rst_ni,
 
         .scrub_trigger_i ( 1'b1),
-        .bit_corrected_o (    ),
-        .uncorrectable_o (  ),
+        .bit_corrected_o (err_scrub[0]),
+        .uncorrectable_o (err_scrub[1]),
 
         .intc_req_i      ( req         ),
         .intc_we_i       ( we          ),
@@ -453,7 +530,6 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       input_buffer_q <= '0;
       be_buffer_q    <= '0;
       req_buffer_q    <= '0;
-      rdata_buffer_q  <= '0;
     end else begin
       id_q <= id_d;
       add_buffer_q   <= add_buffer_d;
@@ -461,11 +537,79 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       input_buffer_q <= input_buffer_d;
       be_buffer_q    <= be_buffer_d;
       req_buffer_q   <= req_buffer_d;
-      rdata_buffer_q <= rdata_buffer_d;
+
      //if (be_valid_dirty_ram!='0 && we_o) begin
       //  $display(1, "BE: %x, DATA: %x, STATE=%x, LOADED: %x", be_valid_dirty_ram_o, wdata_dirty_o, store_state_q, dirty_rdata_i);
       //end
     end
   end
+  
+  //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
+  logic [5:0] correctable;
+  logic [5:0] uncorrectable;
+  
+  assign correctable[0] = err_scrub[0];
+  assign uncorrectable[0] = err_scrub[1];
+
+
+
+  always_comb begin
+    for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
+      if (err_tag[i][0] && rdata_o[i].valid) begin
+        correctable[1] = 1'b1;
+      end
+      if (err_tag[i][1] && rdata_o[i].valid) begin
+        uncorrectable[1] = 1'b1;
+      end
+      for (int unsigned j = 0; j < SECDEC_DIVISIONS_DATA;j++) begin
+        if (err_data[i][j][0] && rdata_o[i].valid) begin
+        correctable[2] = 1'b1;
+        end
+        if (err_data[i][j][1] && rdata_o[i].valid) begin
+          uncorrectable[2] = 1'b1;
+        end
+      end
+
+      if (err_vldrty[i][0]) begin
+        correctable[3] = 1'b1;
+      end
+      if (err_vldrty[i][1]) begin
+        uncorrectable[3] = 1'b1;
+      end
+
+
+    end
+
+    for (int unsigned j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin
+      if (err_input_buffer[j][0]) begin
+        correctable[4] = 1'b1;
+      end
+      if (err_input_buffer[j][1]) begin
+        uncorrectable[4] = 1'b1;
+      end
+      
+    end
+  end
+
+  assign correctable[5] = err_input_tag[0];
+  assign uncorrectable[5] = err_input_tag[1];
+  /*
+  ecc_manager #(
+    .NumBanks(6),
+    .ecc_mgr_req_t( axi_req_t), // need to get from above
+    .ecc_mgr_rsp_t(axi_rsp_t)
+  ) ecc_manager_errors(
+    .clk_i(clk_i),
+    .rst_ni(rst_ni),
+
+    .ecc_mgr_req_i('1),
+    .ecc_mgr_rsp_o(),
+
+    .bank_faults_i('0),
+    .scrub_fix_i(correctable),
+    .scrub_uncorrectable_i(uncorrectable),
+    .scrub_trigger_o(),
+    .test_write_mask_no()
+  );*/
 
 endmodule

@@ -251,7 +251,9 @@ module std_nbdcache
       .CVA6Cfg         (CVA6Cfg),
       .NR_PORTS        (NumPorts + 1),
       .ADDR_WIDTH      (DCACHE_INDEX_WIDTH),
-      .DCACHE_SET_ASSOC(DCACHE_SET_ASSOC)
+      .DCACHE_SET_ASSOC(DCACHE_SET_ASSOC),
+      .axi_req_t(axi_req_t),
+      .axi_rsp_t(axi_rsp_t)
   ) i_tag_cmp (
       .req_i    (req),
       .gnt_o    (gnt),
