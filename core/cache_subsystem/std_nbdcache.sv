@@ -103,7 +103,7 @@ module std_nbdcache
   generate
     for (genvar i = 0; i < NumPorts; i++) begin : master_ports
       cache_ctrl #(
-          .CVA6Cfg(CVA6Cfg)
+        .CVA6Cfg         (CVA6Cfg)
       ) i_cache_ctrl (
           .bypass_i  (~enable_i),
           .busy_o    (busy[i]),
@@ -186,7 +186,8 @@ module std_nbdcache
   for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : sram_block
     sram #(
         .DATA_WIDTH(DCACHE_LINE_WIDTH_SRAM), // TODO
-        .NUM_WORDS (DCACHE_NUM_WORDS)
+        .NUM_WORDS (DCACHE_NUM_WORDS),
+        .BYTE_WIDTH(BLOCK_SIZE_SRAM)
     ) data_sram (
         .req_i  (req_ram[i]),
         .rst_ni (rst_ni),
@@ -202,7 +203,8 @@ module std_nbdcache
 
     sram #(
         .DATA_WIDTH(DCACHE_TAG_WIDTH_SRAM),
-        .NUM_WORDS (DCACHE_NUM_WORDS)
+        .NUM_WORDS (DCACHE_NUM_WORDS),
+        .BYTE_WIDTH(DCACHE_TAG_WIDTH_SRAM)
     ) tag_sram (
         .req_i  (req_ram[i]),
         .rst_ni (rst_ni),
@@ -251,9 +253,7 @@ module std_nbdcache
       .CVA6Cfg         (CVA6Cfg),
       .NR_PORTS        (NumPorts + 1),
       .ADDR_WIDTH      (DCACHE_INDEX_WIDTH),
-      .DCACHE_SET_ASSOC(DCACHE_SET_ASSOC),
-      .axi_req_t(axi_req_t),
-      .axi_rsp_t(axi_rsp_t)
+      .DCACHE_SET_ASSOC(DCACHE_SET_ASSOC)
   ) i_tag_cmp (
       .req_i    (req),
       .gnt_o    (gnt),

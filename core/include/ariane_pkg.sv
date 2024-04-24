@@ -41,7 +41,7 @@ package ariane_pkg;
   localparam ISSUE_WIDTH = 1;
 
   //SECDEC
-  localparam int SECDEC_ENABLED = 1; // 1 enabled, 0 disabled TODO
+  localparam bit SECDEC_ENABLED = 1; // 1 enabled, 0 disabled TODO
 
   // depth of store-buffers, this needs to be a power of two
   localparam logic [2:0] DEPTH_SPEC = 'd4;

@@ -13,14 +13,20 @@
 //   - corrects *only* correctable errors
 
 module ecc_scrubber_cache
-  import ariane_pkg::*;
  #(
   parameter int unsigned BankSize       = 256,
   parameter bit          UseExternalECC = 0,
   parameter int unsigned DataWidth      = 39,
   parameter int unsigned ProtWidth      = 7,
   parameter int unsigned AddrWidth      = 8,
-  parameter int unsigned DCACHE_SET_ASSOC = 2
+  parameter int unsigned Assoc = 2,
+  parameter int unsigned Tag_width = 1,
+  parameter int unsigned Block_size = 1,
+  parameter int unsigned Block_size_ECC = 1,
+  parameter int unsigned ECC_Divisions = DataWidth/Block_size_ECC,
+  parameter type         be_t = logic,
+  parameter type         line_t = logic
+
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
@@ -30,20 +36,20 @@ module ecc_scrubber_cache
   output logic                        uncorrectable_o,
 
   // Input signals from others accessing memory bank
-  input  logic   [DCACHE_SET_ASSOC-1:0] intc_req_i,
+  input  logic   [Assoc-1:0] intc_req_i,
   input  logic                        intc_we_i,
   input  logic [AddrWidth-1:0] intc_add_i,
-  input  std_cache_pkg::cl_be_SRAM_t  intc_be_i,
-  input  std_cache_pkg::cache_line_SRAM_t intc_wdata_i,
-  output std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0]intc_rdata_o,
+  input  be_t  intc_be_i,
+  input  line_t intc_wdata_i,
+  output line_t [Assoc-1:0]intc_rdata_o,
 
   // Output directly to bank
-  output logic [DCACHE_SET_ASSOC-1:0] bank_req_o,
+  output logic [Assoc-1:0] bank_req_o,
   output logic                        bank_we_o,
   output logic [AddrWidth-1:0] bank_add_o,
-  output std_cache_pkg::cache_line_SRAM_t bank_wdata_o,
-  input  std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0] bank_rdata_i,
-  output std_cache_pkg::cl_be_SRAM_t bank_be_o
+  output line_t bank_wdata_o,
+  input  line_t [Assoc-1:0] bank_rdata_i,
+  output be_t bank_be_o
 
 
 );
@@ -51,16 +57,16 @@ module ecc_scrubber_cache
 // Note TODO, currently is this module deactivted 
 
 
-  logic [SECDEC_DIVISIONS_DATA-1:0][                 1:0] ecc_err_s;
+  logic [ECC_Divisions-1:0][                 1:0] ecc_err_s;
 
   logic [                 1:0] ecc_err_t;
   logic [1:0] ecc_err;
 
-  logic[DCACHE_SET_ASSOC-1:0] scrub_req, scrub_req_d, scrub_req_q;
+  logic[Assoc-1:0] scrub_req, scrub_req_d, scrub_req_q;
   logic                        scrub_we;
   logic [AddrWidth-1:0] scrub_add;
-  std_cache_pkg::cache_line_SRAM_t scrub_wdata;
-  std_cache_pkg::cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0] scrub_rdata;
+  line_t scrub_wdata;
+  line_t [Assoc-1:0] scrub_rdata;
 
   typedef enum logic [2:0] {Idle, Read, Write} scrub_state_e;
 
@@ -90,19 +96,19 @@ module ecc_scrubber_cache
     end
   end
 
-  for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin
+  for (genvar j = 0; j<ECC_Divisions;j++) begin
       hsiao_ecc_cor #(
-      .DataWidth (SECDEC_BLOCK_SIZE)
+      .DataWidth (Block_size)
       ) ecc_corrector (
-      .in        ( scrub_rdata[scrub_req_q].data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] ),
-      .out       ( scrub_wdata.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] ),
+      .in        ( scrub_rdata[scrub_req_q].data[j*Block_size_ECC+:Block_size_ECC] ),
+      .out       ( scrub_wdata.data[j*Block_size_ECC+:Block_size_ECC] ),
       .syndrome_o(),
       .err_o     ( ecc_err_s[j]     )
       );
   end
 
   hsiao_ecc_cor #(
-    .DataWidth (DCACHE_TAG_WIDTH)
+    .DataWidth (Tag_width)
   ) ecc_corrector (
   .in        ( scrub_rdata[scrub_req_q].tag),
   .out       ( scrub_wdata.tag),
@@ -116,8 +122,7 @@ module ecc_scrubber_cache
   
 
 
-  
-  assign ecc_err = (|ecc_err_s) | ecc_err_t;
+  assign ecc_err = ((|ecc_err_s) | ecc_err_t) & scrub_rdata[scrub_req_q].valid; // check if correct
 
   always_comb begin : proc_FSM_logic
     state_s_d       = state_s_q;
@@ -143,27 +148,26 @@ module ecc_scrubber_cache
       end
 
     end else if (state_s_q == Write) begin
-      if (ecc_err[0] == 1'b0) begin   // No correctable Error            TODO make a loop and not do |ecc_err
+      if (ecc_err[0]&scrub_rdata[scrub_req_q].valid == 1'b0) begin   // No correctable Error            TODO make a loop and not do |ecc_err
         // Return to idle state
         state_s_d       = Idle;
-        scrub_req_d = (scrub_req_q ) % DCACHE_SET_ASSOC;
-        if (scrub_req_q== DCACHE_SET_ASSOC-1) begin //count of the req and then afterwards count up the address
+        scrub_req_d = (scrub_req_q ) % Assoc;
+        if (scrub_req_q== Assoc-1) begin //count of the req and then afterwards count up the address
           working_add_d = (working_add_q + 1) % BankSize; // increment address
         end
-        uncorrectable_o = ecc_err[1];
+        uncorrectable_o = ecc_err[1]&scrub_rdata[scrub_req_q].valid;
 
       end else begin                  // Correctable Error
         // Write corrected version
         scrub_req = scrub_req_q;
         scrub_we  = 1'b1;
-
         // INTC interference - retry read and write
         if (intc_req_i == 1'b1) begin
           state_s_d = Read;
         end else begin                // Error corrected
           state_s_d       = Idle;
-          scrub_req_d = (scrub_req_q + 1) % DCACHE_SET_ASSOC;
-          if (scrub_req_q== DCACHE_SET_ASSOC-1) begin //count of the req and then afterwards count up the address
+          scrub_req_d = (scrub_req_q + 1) % Assoc;
+          if (scrub_req_q== Assoc-1) begin //count of the req and then afterwards count up the address
             working_add_d = (working_add_q + 1) % BankSize; // increment address
           end
           bit_corrected_o = 1'b1;

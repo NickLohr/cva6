@@ -28,8 +28,9 @@ module tag_cmp
     parameter type                   l_be_SRAM_t           = std_cache_pkg::cl_be_SRAM_t,
     parameter int unsigned           DCACHE_SET_ASSOC = 8,
     parameter  int unsigned NumRMWCuts       = 0, // Number of cuts in the read-modify-write path
-    parameter type axi_req_t = logic,
-    parameter type axi_rsp_t = logic
+    parameter type reg_req_t = logic,
+    parameter type reg_rsp_t = logic
+
    ) (
     input logic clk_i,
     input logic rst_ni,
@@ -99,7 +100,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
 
   //be
-  l_be_SRAM_t be_buffer_d, be_buffer_q;
+  l_be_t be_buffer_d, be_buffer_q;//TODO make ECC
   l_be_SRAM_t be;
 
   logic [DCACHE_LINE_WIDTH-1:0] be_selector_data;  
@@ -154,60 +155,46 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   end
 
-  for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
-
-      //assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
-      //assign rdata_o[i].dirty = rdata[i].dirty;
-
-      hsiao_ecc_dec #(.DataWidth( $bits(vldrty_t))
-        ) i_hsio_ecc_dec_rdata (
-          .in(dirty_rdata2[i]),
-          .out(dirty_rdata[i]),
-          .syndrome_o(),
-          .err_o(err_vldrty[i]) // TODO error handling, look in wrapper for info how to
-        );
-
-        hsiao_ecc_enc #(
-        .DataWidth ($bits(vldrty_t))
-        
-        ) j_ecc_encode (
-          .in  (wdata_dirty2[i] ),
-          .out (wdata_dirty_o[i] )
-        );
 
 
+  // one hot encoded
+  logic [NR_PORTS-1:0] id_d, id_q;
+  logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
+  logic [DCACHE_TAG_WIDTH_SRAM-1:0] sel_tag_SRAM;
+
+  always_comb begin : tag_sel
+    sel_tag = '0;
+    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
   end
 
 
 
 
-
   if (SECDEC_ENABLED) begin
+
     // read 
     for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin : rdata_copy
 
-      //assign rdata_o[i].valid = rdata[i].valid; // TODO improve error handling ((|err_data[i])[1]) ? '0 :
-      //assign rdata_o[i].dirty = rdata[i].dirty;
+      hsiao_ecc_dec_wrap #(
+        .DIVISIONS(1),
+        .ASSOC(1),
+        .SIZE( DCACHE_TAG_WIDTH)
+      ) ecc_input_wrap (
+        .data_i(rdata[i].tag),
+        .data_o(rdata_o[i].tag),
+        .err_o(err_tag[i])
+      );
 
-      hsiao_ecc_dec #(.DataWidth(DCACHE_TAG_WIDTH)
-        ) i_hsio_ecc_dec_rdata (
-          .in(rdata[i].tag),
-          .out(rdata_o[i].tag),
-          .syndrome_o(),
-          .err_o(err_tag[i]) // TODO error handling, look in wrapper for info how to
-        );
-      
-      
-      for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
-        hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
-        ) i_hsio_ecc_dec_rdata (
-          .in(rdata[i].data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
-          .out(loaded[i][j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
-          .syndrome_o(),
-          .err_o(err_data[i][j]) // TODO error handling, look in wrapper for info how to
-        );
-      
-      end
+      hsiao_ecc_dec_wrap #(
+        .DIVISIONS(SECDEC_DIVISIONS_DATA),
+        .ASSOC(1),
+        .SIZE(DCACHE_LINE_WIDTH)
+      ) ecc_rtag_dec_wrap (
+        .data_i(rdata[i].data),
+        .data_o(loaded[i]),
+        .err_o(err_data[i])
+      );
+
     
       assign rdata_o[i].data   = loaded[i];
     end
@@ -238,96 +225,103 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
 
 
-    for (genvar j=0; j<SECDEC_DIVISIONS_DATA;j++)begin
-      hsiao_ecc_enc #(
-        .DataWidth (SECDEC_BLOCK_SIZE)
-        
-      ) j_ecc_encode (
-        .in  (to_store_data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]  ),
-        .out ( wdata_scrub.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC] )
-      );
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(SECDEC_DIVISIONS_DATA),
+      .ASSOC(1),
+      .SIZE(DCACHE_LINE_WIDTH)
+    ) ecc_wdata_wrap (
+      .data_i(to_store_data),
+      .data_o(wdata_scrub.data)
+    );
 
-    end
-    hsiao_ecc_enc #(
-        .DataWidth (DCACHE_TAG_WIDTH)
-        
-    ) ecc_encode_tag(
-        .in(to_store.tag),
-        .out(wdata_scrub.tag)
-
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(1),
+      .ASSOC(1),
+      .SIZE(DCACHE_TAG_WIDTH)
+    ) ecc_wtag_wrap (
+      .data_i(to_store.tag),
+      .data_o(wdata_scrub.tag)
     );
 
     assign to_store.data = store_state_q == NORMAL ? wdata.data : (be_selector_data & output_buffer.data) | (~be_selector_data & sel_loaded_data); // take the bits from the input which should be written and otherwise take the stored values
     assign to_store.tag = store_state_q == NORMAL ? wdata.tag : (be_selector_tag & output_buffer.tag) | (~be_selector_tag & sel_loaded_tag);
 
-
-  end
-  else begin
-    assign wdata_scrub = wdata;
-    assign rdata_o = rdata;
-  end
-
-
-  // one hot encoded
-  logic [NR_PORTS-1:0] id_d, id_q;
-  logic [ariane_pkg::DCACHE_TAG_WIDTH-1:0] sel_tag;
-  logic [DCACHE_TAG_WIDTH_SRAM-1:0] sel_tag_SRAM;
-
-  always_comb begin : tag_sel
-    sel_tag = '0;
-    for (int unsigned i = 0; i < NR_PORTS; i++) if (id_q[i]) sel_tag = tag_i[i];
-  end
-
-  if (SECDEC_ENABLED) begin
-    hsiao_ecc_enc #(
-      .DataWidth (DCACHE_TAG_WIDTH)  
-    ) ecc_encode_sel_tag(
-        .in(sel_tag),
-        .out(sel_tag_SRAM)
-
+    hsiao_ecc_dec_wrap #(
+      .DIVISIONS(1),
+      .ASSOC(DCACHE_SET_ASSOC),
+      .SIZE( $bits(vldrty_t))
+    ) ecc_input_wrap (
+      .data_i(dirty_rdata2),
+      .data_o(dirty_rdata),
+      .err_o(err_vldrty)
     );
 
 
-    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
-        hsiao_ecc_dec #(.DataWidth(SECDEC_BLOCK_SIZE)
-        ) i_ecc_decode_buffer_data (
-          .in(input_buffer_q.data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC]),
-          .out(output_buffer.data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
-          .syndrome_o(),
-          .err_o(err_input_buffer[j]) // TODO error handling, look in wrapper for info how to
-        );
-      
-      end
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(1),
+      .ASSOC(DCACHE_SET_ASSOC),
+      .SIZE($bits(vldrty_t))
+    ) ecc_wdirty_wrap (
+      .data_i(wdata_dirty2),
+      .data_o(wdata_dirty_o)
+    );
+
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(1),
+      .ASSOC(1),
+      .SIZE(DCACHE_TAG_WIDTH)
+    ) ecc_stag_wrap (
+      .data_i(sel_tag),
+      .data_o(sel_tag_SRAM)
+    );
+
+    hsiao_ecc_dec_wrap #(
+        .DIVISIONS(SECDEC_DIVISIONS_DATA),
+        .ASSOC(1),
+        .SIZE(DCACHE_LINE_WIDTH)
+      ) ecc_input_data_dec_wrap (
+        .data_i(input_buffer_q.data),
+        .data_o(output_buffer.data),
+        .err_o(err_input_buffer)
+      );
+
     
+    hsiao_ecc_dec_wrap #(
+        .DIVISIONS(1),
+        .ASSOC(1),
+        .SIZE(DCACHE_TAG_WIDTH)
+      ) ecc_input_tag_wrap (
+        .data_i(input_buffer_q.tag),
+        .data_o(output_buffer.tag),
+        .err_o(err_input_tag)
+      );
 
-    hsiao_ecc_dec #(.DataWidth(DCACHE_TAG_WIDTH)
-    ) ecc_decode_buffer_tag (
-      .in(input_buffer_q.tag),
-      .out(output_buffer.tag),
-      .syndrome_o(),
-      .err_o(err_input_tag) // TODO error handling, look in wrapper for info how to
-    );
+
+
 
     logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
     logic [DCACHE_LINE_WIDTH_SRAM-1:0] input_buffer_data;
     logic [DCACHE_LINE_WIDTH-1:0] input_buffer_data_full;
 
-    hsiao_ecc_enc #(
-      .DataWidth (DCACHE_TAG_WIDTH)  
-    ) ecc_encode_buffer_tag(
-      .in(input_buffer.tag),
-      .out(input_buffer_tag)
-
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(1),
+      .ASSOC(1),
+      .SIZE(DCACHE_TAG_WIDTH)
+    ) ecc_wtag_input_wrap (
+      .data_i(input_buffer.tag),
+      .data_o(input_buffer_tag)
     );
-    for (genvar j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin 
-    hsiao_ecc_enc #(
-      .DataWidth (SECDEC_BLOCK_SIZE)  
-    ) ecc_encode_buffer_data(
-      .in(input_buffer_data_full[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE]),
-      .out(input_buffer_data[j*SECDEC_BLOCK_SIZE_ECC+:SECDEC_BLOCK_SIZE_ECC])
 
+    hsiao_ecc_enc_wrap #(
+      .DIVISIONS(SECDEC_DIVISIONS_DATA),
+      .ASSOC(1),
+      .SIZE(DCACHE_LINE_WIDTH)
+    ) ecc_wdata_input_wrap (
+      .data_i(input_buffer_data_full),
+      .data_o(input_buffer_data)
     );
-    end
+
+
 
     always_comb begin
           input_buffer_data_full ='0;
@@ -341,28 +335,30 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         input_buffer_d.dirty = input_buffer.dirty;
         input_buffer_d.data = input_buffer_data;
         input_buffer_d.tag = input_buffer_tag;
-            
       end
       else begin
         input_buffer_d = input_buffer_q;
       end
-
-
     end
+  end
+  else begin
+    assign wdata_scrub = wdata;
+    assign rdata_o = rdata;
 
-     
+    assign dirty_rdata = dirty_rdata2;
+    assign wdata_dirty_o = wdata_dirty2;
 
-
-  end else begin
     assign sel_tag_SRAM = sel_tag;
     assign input_buffer_d = (store_state_q == NORMAL)? input_buffer: input_buffer_q;
+
   end
 
 
-  logic [DCACHE_SET_ASSOC-1:0][DCACHE_TAG_WIDTH_SRAM] tag_xor;
+  logic [DCACHE_SET_ASSOC-1:0][DCACHE_TAG_WIDTH_SRAM-1:0] tag_xor;
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
     assign tag_xor[j] = sel_tag_SRAM ^ rdata_i[j].tag;
-    assign hit_way_o[j] = ( $countones(tag_xor[j])<=1) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i, 
+
+    assign hit_way_o[j] = ((tag_xor[j] & (tag_xor[j]-1))==0) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i, 
   end
 
   logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
@@ -406,21 +402,20 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         be.data    = '0; // TODO check if right
         be.vldrty  = be_i[i].vldrty;
           for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
-              if (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
-                be.data[j*BLOCK_SIZE_SRAM+:BLOCK_SIZE_SRAM] = ones_SRAM;
+              if (be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
+                be.data[j] = 1'b1;
+              end
+              if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] !='0 && be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '1)  & we_i[i]) begin 
+                store_state_d = LOAD_AND_STORE; // write requests which need another cycle
+                we = 1'b0;
+                gnt_o[i] = 1'b0;
               end
           end
 
-          for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
-            if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] !=zeros && be_i[i].data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != ones)  & we_i[i]) begin // TODO decrease size
-              store_state_d = LOAD_AND_STORE; // write requests which need another cycle
-              we = 1'b0;
-              gnt_o[i] = 1'b0;
-            end
-          end
+        
           // & (be_i[i].vldrty !='0 && be_i[i].vldrty != '1) 
           for (int unsigned j=0; j<DCACHE_SET_ASSOC; j++)begin
-            if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].vldrty[j] !='0 && be_i[i].vldrty[j] != '1)  & we_i[i]) begin // TODO decrease size
+            if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].vldrty[j] !='0 && be_i[i].vldrty[j] != '1)  & we_i[i]) begin 
               store_state_d = LOAD_AND_STORE; // write requests which need another cycle
               we = 1'b0;
               gnt_o[i] = 1'b0;
@@ -451,8 +446,8 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       be.vldrty = be_buffer_q.vldrty;
 
       for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
-            if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE+:SECDEC_BLOCK_SIZE] != zeros)begin
-              be.data[j*BLOCK_SIZE_SRAM+:BLOCK_SIZE_SRAM] = ones_SRAM;
+            if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
+              be.data[j] = '1;
             end
         end
       
@@ -482,18 +477,25 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   logic [1:0] err_scrub; 
   if (SECDEC_ENABLED) begin
-    
+
+      
       ecc_scrubber_cache #(
         .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), 
         .UseExternalECC ( 0              ),
         .DataWidth      ( 1'b1 ),
         .AddrWidth(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET),
-        .DCACHE_SET_ASSOC(DCACHE_SET_ASSOC)
+        .Assoc(DCACHE_SET_ASSOC),
+        .Tag_width(DCACHE_TAG_WIDTH),
+        .Block_size(SECDEC_BLOCK_SIZE),
+        .Block_size_ECC(SECDEC_BLOCK_SIZE_ECC),
+        .ECC_Divisions(SECDEC_DIVISIONS_DATA),
+        .be_t(std_cache_pkg::cl_be_SRAM_t),
+        .line_t(std_cache_pkg::cache_line_SRAM_t)
       ) i_scrubber (
         .clk_i,
         .rst_ni,
 
-        .scrub_trigger_i ( 1'b1),
+        .scrub_trigger_i ( 1'b0),
         .bit_corrected_o (err_scrub[0]),
         .uncorrectable_o (err_scrub[1]),
 
@@ -550,32 +552,42 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   
   assign correctable[0] = err_scrub[0];
   assign uncorrectable[0] = err_scrub[1];
-
+  
 
 
   always_comb begin
+    if (err_scrub[0]) begin
+      $display("1", "scrub");
+    end	
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
-      if (err_tag[i][0] && rdata_o[i].valid) begin
-        correctable[1] = 1'b1;
-      end
-      if (err_tag[i][1] && rdata_o[i].valid) begin
-        uncorrectable[1] = 1'b1;
-      end
-      for (int unsigned j = 0; j < SECDEC_DIVISIONS_DATA;j++) begin
-        if (err_data[i][j][0] && rdata_o[i].valid) begin
-        correctable[2] = 1'b1;
+        if (err_tag[i][0] && rdata_o[i].valid) begin
+          $display("1", "rr %d ", i);
+          correctable[1] = 1'b1;
         end
-        if (err_data[i][j][1] && rdata_o[i].valid) begin
-          uncorrectable[2] = 1'b1;
+        if (err_tag[i][1] && rdata_o[i].valid) begin
+          
+          $display("1", "rm %d %d", i,i);
+          uncorrectable[1] = 1'b1;
         end
-      end
+        for (int unsigned j = 0; j < SECDEC_DIVISIONS_DATA;j++) begin
+          if (err_data[i][j][0] && rdata_o[i].valid) begin
+          $display("1", "mr %d %d", i,j);
+          correctable[2] = 1'b1;
+          end
+          if (err_data[i][j][1] && rdata_o[i].valid) begin
+            $display("1", "mm %d %d", i,j);
+            uncorrectable[2] = 1'b1;
+          end
+        end
 
-      if (err_vldrty[i][0]) begin
-        correctable[3] = 1'b1;
-      end
-      if (err_vldrty[i][1]) begin
-        uncorrectable[3] = 1'b1;
-      end
+        if (err_vldrty[i][0]) begin
+          $display("1", "vldr 0");
+          correctable[3] = 1'b1;
+        end
+        if (err_vldrty[i][1]) begin
+          $display("1", "vldr 1");
+          uncorrectable[3] = 1'b1;
+        end
 
 
     end
@@ -596,8 +608,8 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   /*
   ecc_manager #(
     .NumBanks(6),
-    .ecc_mgr_req_t( axi_req_t), // need to get from above
-    .ecc_mgr_rsp_t(axi_rsp_t)
+    .ecc_mgr_req_t( reg_bus_req_t), // need to get from above
+    .ecc_mgr_rsp_t(reg_bus_rsp_t)
   ) ecc_manager_errors(
     .clk_i(clk_i),
     .rst_ni(rst_ni),
