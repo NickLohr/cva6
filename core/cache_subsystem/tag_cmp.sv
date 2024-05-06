@@ -44,7 +44,7 @@ module tag_cmp
     output l_data_t [DCACHE_SET_ASSOC-1:0] rdata_o,
     input  logic    [NR_PORTS-1:0][ariane_pkg::DCACHE_TAG_WIDTH-1:0] tag_i, // tag in - comes one cycle later
     output logic [DCACHE_SET_ASSOC-1:0] hit_way_o,  // we've got a hit on the corresponding way
-
+    output logic error_inc_o,
 
     output logic    [DCACHE_SET_ASSOC-1:0] req_o,
     output logic    [      ADDR_WIDTH-1:0] addr_o,
@@ -127,7 +127,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
                            {8{be_buffer_q.tag[3]}},{8{be_buffer_q.tag[2]}},
                            {8{be_buffer_q.tag[1]}},{8{be_buffer_q.tag[0]}}};
 
-                           // TODO add scrubber dirty valid function
+                          
 
   vldrty_t [DCACHE_SET_ASSOC-1:0] a;
   vldrty_t [DCACHE_SET_ASSOC-1:0] b;
@@ -361,11 +361,6 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     assign hit_way_o[j] = ((tag_xor[j] & (tag_xor[j]-1))==0) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i, 
   end
 
-  logic [SECDEC_BLOCK_SIZE-1:0] ones, zeros;
-  logic [BLOCK_SIZE_SRAM-1:0] ones_SRAM;
-  assign ones = '1;
-  assign ones_SRAM = '1;
-  assign zeros = '0;
 
   always_comb begin
     store_state_d = NORMAL;
@@ -398,9 +393,9 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         input_buffer = wdata_i[i];
         req_buffer_d = req_i[i];
         if (SECDEC_ENABLED) begin
-                  be.tag     = (be_i[i].tag=='0)? '0 : '1;
-        be.data    = '0; // TODO check if right
-        be.vldrty  = be_i[i].vldrty;
+          be.tag     = (be_i[i].tag=='0)? '0 : '1;
+          be.data    = '0; 
+          be.vldrty  = be_i[i].vldrty;
           for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
               if (be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
                 be.data[j] = 1'b1;
@@ -482,20 +477,19 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       ecc_scrubber_cache #(
         .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), 
         .UseExternalECC ( 0              ),
-        .DataWidth      ( 1'b1 ),
-        .AddrWidth(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET),
+        .WITH_VALID(1),
         .Assoc(DCACHE_SET_ASSOC),
-        .Tag_width(DCACHE_TAG_WIDTH),
-        .Block_size(SECDEC_BLOCK_SIZE),
-        .Block_size_ECC(SECDEC_BLOCK_SIZE_ECC),
-        .ECC_Divisions(SECDEC_DIVISIONS_DATA),
+        .TagWidth(DCACHE_TAG_WIDTH),
+        .BlockWidth(SECDEC_BLOCK_SIZE),
+        .BlockWidthECC(SECDEC_BLOCK_SIZE_ECC),
+        .DataDivisions(SECDEC_DIVISIONS_DATA),
         .be_t(std_cache_pkg::cl_be_SRAM_t),
         .line_t(std_cache_pkg::cache_line_SRAM_t)
       ) i_scrubber (
         .clk_i,
         .rst_ni,
 
-        .scrub_trigger_i ( 1'b0),
+        .scrub_trigger_i ( 1'b1),
         .bit_corrected_o (err_scrub[0]),
         .uncorrectable_o (err_scrub[1]),
 
@@ -511,7 +505,13 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
         .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
         .bank_wdata_o    ( wdata_o),
         .bank_rdata_i    ( rdata_i ),
-        .bank_be_o ( be_o)
+        .bank_be_o ( be_o),
+
+
+
+        .ecc_err_i('1),
+        .ecc_in_i('1),
+        .ecc_out_o()
       );
 
   end else begin
@@ -556,9 +556,6 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
 
   always_comb begin
-    if (err_scrub[0]) begin
-      $display("1", "scrub");
-    end	
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
         if (err_tag[i][0] && rdata_o[i].valid) begin
           $display("1", "rr %d ", i);
@@ -605,6 +602,41 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   assign correctable[5] = err_input_tag[0];
   assign uncorrectable[5] = err_input_tag[1];
+
+
+  // counters
+  logic [6:0][32-1:0] correctable_counters_d,correctable_counters_q;
+  logic [6:0][32-1:0] uncorrectable_counters_d,uncorrectable_counters_q;
+
+  always_comb begin
+    correctable_counters_d = correctable_counters_q;
+    uncorrectable_counters_d = uncorrectable_counters_q;
+
+    for (int i =0; i<6; ++i)begin
+      if (correctable[i]) begin
+        correctable_counters_d[i] = correctable_counters_q[i]+1;
+      end
+      if (uncorrectable[i]) begin
+        uncorrectable_counters_d[i] = uncorrectable_counters_q[i]+1;
+      end
+    end
+
+  end
+
+  assign error_inc_o = |uncorrectable; // TODO add previous step and check if it has been read in register
+  always_ff @(posedge clk_i or negedge rst_ni) begin : proc_counters_un_correctable
+    if(~rst_ni) begin
+      correctable_counters_q <= 0;
+      uncorrectable_counters_q <= 0;
+    end else begin
+      correctable_counters_q <= correctable_counters_d;
+      uncorrectable_counters_q <= uncorrectable_counters_d;
+    end
+  end
+
+
+
+
   /*
   ecc_manager #(
     .NumBanks(6),

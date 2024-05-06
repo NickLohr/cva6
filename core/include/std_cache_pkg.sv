@@ -93,7 +93,7 @@ package std_cache_pkg;
     vldrty_t [ariane_pkg::DCACHE_SET_ASSOC-1:0]     vldrty;  // bit enable into state array
   } cl_be_t;
 typedef struct packed {
-      logic [0:0]  tag;     // byte enable into tag array
+      logic tag;     // byte enable into tag array
     logic [ariane_pkg::SECDEC_DIVISIONS_DATA-1:0] data;    // byte enable into data array
     vldrty_t [ariane_pkg::DCACHE_SET_ASSOC-1:0]     vldrty;  // bit enable into state array
   } cl_be_SRAM_t;

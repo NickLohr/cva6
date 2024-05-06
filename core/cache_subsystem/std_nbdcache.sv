@@ -264,6 +264,7 @@ module std_nbdcache
       .rdata_o  (rdata),
       .tag_i    (tag),
       .hit_way_o(hit_way),
+      .error_inc_o(),
 
       .req_o  (req_ram),
       .addr_o (addr_ram),
