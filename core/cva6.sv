@@ -494,6 +494,9 @@ module cva6
   amo_resp_t                                             amo_resp;
   logic                                                  sb_full;
 
+  logic       [ariane_pkg::DCACHE_INDEX_WIDTH-1:0]       dcache_bitflip_addr_e;
+  logic       [ariane_pkg::DCACHE_INDEX_WIDTH-1:0]       dcache_bitflip_addr_n;
+  logic       [6-1:0]                                    dcache_counters;
   // ----------------
   // DCache <-> *
   // ----------------
@@ -993,6 +996,9 @@ module cva6
       .pmpcfg_o                (pmpcfg),
       .pmpaddr_o               (pmpaddr),
       .mcountinhibit_o         (mcountinhibit_csr_perf),
+      .dcache_bitflip_addr_i   (dcache_bitflip_addr_n),
+      .dcache_bitflip_addr_o   (dcache_bitflip_addr_e),
+      .dcache_counter_i         (dcache_counters),
       .debug_req_i,
       .ipi_i,
       .irq_i,
@@ -1267,7 +1273,11 @@ module cva6
         .dcache_req_ports_o(dcache_req_from_cache),
         // memory side
         .axi_req_o         (noc_req_o),
-        .axi_resp_i        (noc_resp_i)
+        .axi_resp_i        (noc_resp_i), 
+
+        .dcache_bitflip_addr_i(dcache_bitflip_addr_e),
+        .dcache_bitflip_addr_o(dcache_bitflip_addr_n), 
+        .dcache_counters_o(dcache_counters)
     );
     assign dcache_commit_wbuffer_not_ni = 1'b1;
     assign inval_ready                  = 1'b1;

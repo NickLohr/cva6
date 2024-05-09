@@ -643,6 +643,13 @@ package riscv;
     // Cache Control (platform specifc)
     CSR_DCACHE           = 12'h7C1,
     CSR_ICACHE           = 12'h7C0,
+    CSR_DCACHE_BITFLIP    = 12'h7C5,
+    CSR_DCACHE_COUNTER1   = 12'h7C6, // TODO rename maybe
+    CSR_DCACHE_COUNTER2   = 12'h7C7,
+    CSR_DCACHE_COUNTER3   = 12'h7C8,
+    CSR_DCACHE_COUNTER4   = 12'h7C9,
+    CSR_DCACHE_COUNTER5   = 12'h7CA,
+    CSR_DCACHE_COUNTER6   = 12'h7CB,
     // Accelerator memory consistency (platform specific)
     CSR_ACC_CONS         = 12'h7C2,
     CSR_FENCE_T_PAD      = 12'h7C3,

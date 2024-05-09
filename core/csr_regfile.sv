@@ -182,7 +182,11 @@ module csr_regfile
     // PMP addresses - ACC_DISPATCHER
     output logic [15:0][riscv::PLEN-3:0] pmpaddr_o,
     // TO_BE_COMPLETED - PERF_COUNTERS
-    output logic [31:0] mcountinhibit_o
+    output logic [31:0] mcountinhibit_o,
+    // ECC 
+    input logic [ariane_pkg::DCACHE_INDEX_WIDTH-1:0] dcache_bitflip_addr_i,
+    output logic [ariane_pkg::DCACHE_INDEX_WIDTH-1:0]  dcache_bitflip_addr_o,
+    input logic [6-1:0] dcache_counter_i
 );
   // internal signal to keep track of access exceptions
   logic read_access_exception, update_access_exception, privilege_violation;
@@ -260,6 +264,8 @@ module csr_regfile
   riscv::xlen_t vstval_q, vstval_d;
 
   riscv::xlen_t dcache_q, dcache_d;
+  riscv::xlen_t dcache_bitflip_addr_q, dcache_bitflip_addr_d;
+  riscv::xlen_t [6-1:0] dcache_counters_d, dcache_counters_q;
   riscv::xlen_t icache_q, icache_d;
   riscv::xlen_t fence_t_pad_q, fence_t_pad_d;
   riscv::xlen_t fence_t_ceil_q, fence_t_ceil_d;
@@ -798,6 +804,14 @@ module csr_regfile
         // custom (non RISC-V) cache control
         riscv::CSR_DCACHE: csr_rdata = dcache_q;
         riscv::CSR_ICACHE: csr_rdata = icache_q;
+        riscv::CSR_DCACHE_BITFLIP: csr_rdata = dcache_bitflip_addr_q;
+        riscv::CSR_DCACHE_COUNTER1: csr_rdata = dcache_counters_q[0];
+        riscv::CSR_DCACHE_COUNTER2: csr_rdata = dcache_counters_q[1];
+        riscv::CSR_DCACHE_COUNTER3: csr_rdata = dcache_counters_q[2];
+        riscv::CSR_DCACHE_COUNTER4: csr_rdata = dcache_counters_q[3];
+        riscv::CSR_DCACHE_COUNTER5: csr_rdata = dcache_counters_q[4];
+        riscv::CSR_DCACHE_COUNTER6: csr_rdata = dcache_counters_q[5];
+
         riscv::CSR_FENCE_T_PAD: csr_rdata = fence_t_pad_q;
         riscv::CSR_FENCE_T_CEIL: csr_rdata = fence_t_ceil_q;
         // custom (non RISC-V) accelerator memory consistency mode
@@ -934,6 +948,14 @@ module csr_regfile
     fiom_d = fiom_q;
     dcache_d = dcache_q;
     icache_d = icache_q;
+    dcache_bitflip_addr_d = (|dcache_bitflip_addr_i)? {dcache_bitflip_addr_q[riscv::XLEN-1:ariane_pkg::DCACHE_INDEX_WIDTH], dcache_bitflip_addr_i}: dcache_bitflip_addr_q;
+    dcache_counters_d[0] = (dcache_counter_i[0])? dcache_counters_q[0]+1 : dcache_counters_q[0];
+    dcache_counters_d[1] = (dcache_counter_i[1])? dcache_counters_q[1]+1 : dcache_counters_q[1];
+    dcache_counters_d[2] = (dcache_counter_i[2])? dcache_counters_q[2]+1 : dcache_counters_q[2];
+    dcache_counters_d[3] = (dcache_counter_i[3])? dcache_counters_q[3]+1 : dcache_counters_q[3];
+    dcache_counters_d[4] = (dcache_counter_i[4])? dcache_counters_q[4]+1 : dcache_counters_q[4];
+    dcache_counters_d[5] = (dcache_counter_i[5])? dcache_counters_q[5]+1 : dcache_counters_q[5];
+
     acc_cons_d = acc_cons_q;
     fence_t_pad_d = fence_t_pad_q;
     fence_t_ceil_d = {
@@ -1585,6 +1607,14 @@ module csr_regfile
 
         riscv::CSR_DCACHE: dcache_d = {{riscv::XLEN - 1{1'b0}}, csr_wdata[0]};  // enable bit
         riscv::CSR_ICACHE: icache_d = {{riscv::XLEN - 1{1'b0}}, csr_wdata[0]};  // enable bit
+        riscv::CSR_DCACHE_BITFLIP: dcache_bitflip_addr_d = {{riscv::XLEN - 32{1'b0}}, csr_wdata[31:0]};
+        riscv::CSR_DCACHE_COUNTER1: dcache_counters_d[0] = csr_wdata;
+        riscv::CSR_DCACHE_COUNTER2: dcache_counters_d[1] = csr_wdata;
+        riscv::CSR_DCACHE_COUNTER3: dcache_counters_d[2] = csr_wdata;
+        riscv::CSR_DCACHE_COUNTER4: dcache_counters_d[3] = csr_wdata;
+        riscv::CSR_DCACHE_COUNTER5: dcache_counters_d[4] = csr_wdata;
+        riscv::CSR_DCACHE_COUNTER6: dcache_counters_d[5] = csr_wdata;
+        
         riscv::CSR_FENCE_T_PAD: fence_t_pad_d = {{riscv::XLEN - 32{1'b0}}, csr_wdata[31:0]};
         riscv::CSR_FENCE_T_CEIL: fence_t_ceil_d = {{riscv::XLEN - 31{1'b0}}, csr_wdata[32:0]};
         riscv::CSR_ACC_CONS: begin
@@ -2396,6 +2426,7 @@ module csr_regfile
   assign icache_en_o = icache_q[0] & (~debug_mode_q);
 `endif
   assign dcache_en_o = dcache_q[0];
+  assign dcache_bitflip_addr_o = dcache_bitflip_addr_q[ariane_pkg::DCACHE_INDEX_WIDTH:0];
   assign acc_cons_en_o = CVA6Cfg.EnableAccelerator ? acc_cons_q[0] : 1'b0;
   assign fence_t_pad_o = fence_t_pad_q[31:0];
   assign fence_t_src_sel_o = fence_t_ceil_q[32];
@@ -2440,6 +2471,8 @@ module csr_regfile
       fiom_q           <= '0;
       dcache_q         <= {{riscv::XLEN - 1{1'b0}}, 1'b1};
       icache_q         <= {{riscv::XLEN - 1{1'b0}}, 1'b1};
+      dcache_bitflip_addr_q <= '0;
+      dcache_counters_q  <= '0;
       mcountinhibit_q  <= '0;
       acc_cons_q       <= {{riscv::XLEN - 1{1'b0}}, CVA6Cfg.EnableAccelerator};
       fence_t_pad_q    <= {riscv::XLEN{1'b0}};
@@ -2525,6 +2558,8 @@ module csr_regfile
       fiom_q          <= fiom_d;
       dcache_q        <= dcache_d;
       icache_q        <= icache_d;
+      dcache_bitflip_addr_q <= dcache_bitflip_addr_d;
+      dcache_counters_q <= dcache_counters_d;
       mcountinhibit_q <= mcountinhibit_d;
       acc_cons_q      <= acc_cons_d;
       fence_t_pad_q   <= fence_t_pad_d;

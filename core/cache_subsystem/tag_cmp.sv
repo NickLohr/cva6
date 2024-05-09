@@ -55,16 +55,20 @@ module tag_cmp
 
     input vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata_i,
     output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram_o,
-    output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] wdata_dirty_o
+    output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] wdata_dirty_o,
+
+    input logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_i,
+    output logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_o,
+    output logic [6-1:0] counters_o
 );
 
-vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
-     vldrty_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram;
-     vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty;
+  vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
+  vldrty_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram;
+  vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty;
 
-     vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata2;
-     vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram2;
-     vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty2;
+  vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata2;
+  vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram2;
+  vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty2;
 
   //assign rdata_o = rdata_i;
   typedef enum logic { NORMAL, LOAD_AND_STORE } store_state_e;
@@ -72,11 +76,11 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   //req
   logic    [DCACHE_SET_ASSOC-1:0] req;
-    logic    [DCACHE_SET_ASSOC-1:0] req_buffer_d, req_buffer_q;
+  logic    [DCACHE_SET_ASSOC-1:0] req_buffer_d, req_buffer_q;
 
   // addr
   logic    [      ADDR_WIDTH-1:0] addr;
-    logic [ADDR_WIDTH-1:0] add_buffer_d, add_buffer_q;
+  logic [ADDR_WIDTH-1:0] add_buffer_d, add_buffer_q;
 
 
   //we
@@ -97,8 +101,20 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded;
 
 
+  //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
+  logic [5:0] correctable;
+  logic [5:0] uncorrectable;
 
 
+  //Exception
+  logic exception_active_q, exception_active_d;
+
+
+  // TODO double check
+  assign error_inc_o = exception_active_d;
+  assign exception_active_d = ((bitflip_addr_i=='0 && exception_active_q) && (|uncorrectable)==1'b0)? 0 : ((|uncorrectable)==1'b1)? 1 : exception_active_q;
+  assign bitflip_addr_o = ((|uncorrectable)==1'b1)? addr_o : '0;
+  
   //be
   l_be_t be_buffer_d, be_buffer_q;//TODO make ECC
   l_be_SRAM_t be;
@@ -297,9 +313,9 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       );
 
 
-
-
-    logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
+  //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
+  logic [5:0] correctable;
+  logic [5:0] uncorrectable; logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
     logic [DCACHE_LINE_WIDTH_SRAM-1:0] input_buffer_data;
     logic [DCACHE_LINE_WIDTH-1:0] input_buffer_data_full;
 
@@ -367,9 +383,6 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     gnt_o   = '0;
     id_d    = '0;
     wdata = '0;
-    req   = '0;
-    addr  = '0;
-    be    = '0;
     we    = '0;
     req_buffer_d = req_buffer_q;
     be_buffer_d = be_buffer_q;
@@ -532,6 +545,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       input_buffer_q <= '0;
       be_buffer_q    <= '0;
       req_buffer_q    <= '0;
+      exception_active_q <= exception_active_d;
     end else begin
       id_q <= id_d;
       add_buffer_q   <= add_buffer_d;
@@ -539,6 +553,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
       input_buffer_q <= input_buffer_d;
       be_buffer_q    <= be_buffer_d;
       req_buffer_q   <= req_buffer_d;
+      exception_active_q <= exception_active_d;
 
      //if (be_valid_dirty_ram!='0 && we_o) begin
       //  $display(1, "BE: %x, DATA: %x, STATE=%x, LOADED: %x", be_valid_dirty_ram_o, wdata_dirty_o, store_state_q, dirty_rdata_i);
@@ -546,9 +561,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
     end
   end
   
-  //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
-  logic [5:0] correctable;
-  logic [5:0] uncorrectable;
+
   
   assign correctable[0] = err_scrub[0];
   assign uncorrectable[0] = err_scrub[1];
@@ -558,31 +571,24 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
   always_comb begin
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
         if (err_tag[i][0] && rdata_o[i].valid) begin
-          $display("1", "rr %d ", i);
           correctable[1] = 1'b1;
         end
         if (err_tag[i][1] && rdata_o[i].valid) begin
-          
-          $display("1", "rm %d %d", i,i);
           uncorrectable[1] = 1'b1;
         end
         for (int unsigned j = 0; j < SECDEC_DIVISIONS_DATA;j++) begin
           if (err_data[i][j][0] && rdata_o[i].valid) begin
-          $display("1", "mr %d %d", i,j);
           correctable[2] = 1'b1;
           end
           if (err_data[i][j][1] && rdata_o[i].valid) begin
-            $display("1", "mm %d %d", i,j);
             uncorrectable[2] = 1'b1;
           end
         end
 
         if (err_vldrty[i][0]) begin
-          $display("1", "vldr 0");
           correctable[3] = 1'b1;
         end
         if (err_vldrty[i][1]) begin
-          $display("1", "vldr 1");
           uncorrectable[3] = 1'b1;
         end
 
@@ -602,11 +608,11 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   assign correctable[5] = err_input_tag[0];
   assign uncorrectable[5] = err_input_tag[1];
-
+  assign counters_o = correctable; // TODO make also uncorrectables
 
   // counters
-  logic [6:0][32-1:0] correctable_counters_d,correctable_counters_q;
-  logic [6:0][32-1:0] uncorrectable_counters_d,uncorrectable_counters_q;
+  logic [6-1:0][32-1:0] correctable_counters_d,correctable_counters_q;
+  logic [6-1:0][32-1:0] uncorrectable_counters_d,uncorrectable_counters_q;
 
   always_comb begin
     correctable_counters_d = correctable_counters_q;
@@ -623,7 +629,7 @@ vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
 
   end
 
-  assign error_inc_o = |uncorrectable; // TODO add previous step and check if it has been read in register
+  //assign error_inc_o = |uncorrectable; // TODO add previous step and check if it has been read in register
   always_ff @(posedge clk_i or negedge rst_ni) begin : proc_counters_un_correctable
     if(~rst_ni) begin
       correctable_counters_q <= 0;

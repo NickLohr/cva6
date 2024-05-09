@@ -42,7 +42,11 @@ module std_nbdcache
     output axi_req_t axi_data_o,
     input axi_rsp_t axi_data_i,
     output axi_req_t axi_bypass_o,
-    input axi_rsp_t axi_bypass_i
+    input axi_rsp_t axi_bypass_i, 
+
+    input logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_i,
+    output logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_o,
+    output logic [6-1:0] counters_o
 );
 
   import std_cache_pkg::*;
@@ -276,6 +280,9 @@ module std_nbdcache
       .dirty_rdata_i(dirty_rdata),
       .be_valid_dirty_ram_o(be_valid_dirty_ram),
       .wdata_dirty_o(dirty_wdata),
+      .bitflip_addr_i(bitflip_addr_i),
+      .bitflip_addr_o(bitflip_addr_o),
+      .counters_o(counters_o),
       .*
   );
 
