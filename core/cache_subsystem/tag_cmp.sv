@@ -44,7 +44,6 @@ module tag_cmp
     output l_data_t [DCACHE_SET_ASSOC-1:0] rdata_o,
     input  logic    [NR_PORTS-1:0][ariane_pkg::DCACHE_TAG_WIDTH-1:0] tag_i, // tag in - comes one cycle later
     output logic [DCACHE_SET_ASSOC-1:0] hit_way_o,  // we've got a hit on the corresponding way
-    output logic error_inc_o,
 
     output logic    [DCACHE_SET_ASSOC-1:0] req_o,
     output logic    [      ADDR_WIDTH-1:0] addr_o,
@@ -56,9 +55,7 @@ module tag_cmp
     input vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] dirty_rdata_i,
     output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram_o,
     output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] wdata_dirty_o,
-
-    input logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_i,
-    output logic [DCACHE_INDEX_WIDTH-1:0] bitflip_addr_o,
+    output exception_t uncorrectable_ex_o,
     output logic [6-1:0] counters_o
 );
 
@@ -110,10 +107,10 @@ module tag_cmp
   logic exception_active_q, exception_active_d;
 
 
-  // TODO double check
-  assign error_inc_o = exception_active_d;
-  assign exception_active_d = ((bitflip_addr_i=='0 && exception_active_q) && (|uncorrectable)==1'b0)? 0 : ((|uncorrectable)==1'b1)? 1 : exception_active_q;
-  assign bitflip_addr_o = ((|uncorrectable)==1'b1)? addr_o : '0;
+  assign uncorrectable_ex_o.cause = riscv::DCACHE_DOUBLE_BITFLIP;
+  assign uncorrectable_ex_o.valid = |uncorrectable;
+  assign uncorrectable_ex_o.tval = addr_o; // TODO not addr_o but previous addr
+
   
   //be
   l_be_t be_buffer_d, be_buffer_q;//TODO make ECC

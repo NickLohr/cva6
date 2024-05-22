@@ -320,6 +320,9 @@ module cva6
   logic [TRANS_ID_BITS-1:0] store_trans_id_ex_id;
   logic store_valid_ex_id;
   exception_t store_exception_ex_id;
+
+
+  exception_t dcache_uncorrectable_ex;
   // MULT
   logic mult_valid_id_ex;
   // FPU
@@ -494,8 +497,6 @@ module cva6
   amo_resp_t                                             amo_resp;
   logic                                                  sb_full;
 
-  logic       [ariane_pkg::DCACHE_INDEX_WIDTH-1:0]       dcache_bitflip_addr_e;
-  logic       [ariane_pkg::DCACHE_INDEX_WIDTH-1:0]       dcache_bitflip_addr_n;
   logic       [6-1:0]                                    dcache_counters;
   // ----------------
   // DCache <-> *
@@ -615,19 +616,22 @@ module cva6
       load_trans_id_ex_id,
       store_trans_id_ex_id,
       fpu_trans_id_ex_id
+      
+      // TODO add for uncorrectable here
     };
     assign wbdata_ex_id = {
-      x_result_ex_id, flu_result_ex_id, load_result_ex_id, store_result_ex_id, fpu_result_ex_id
+      x_result_ex_id, flu_result_ex_id, load_result_ex_id, store_result_ex_id, fpu_result_ex_id // TODO add for uncorrectable here
     };
     assign ex_ex_ex_id = {
       x_exception_ex_id,
       flu_exception_ex_id,
       load_exception_ex_id,
       store_exception_ex_id,
-      fpu_exception_ex_id
+      fpu_exception_ex_id 
+      // TODO add uncorrectable
     };
     assign wt_valid_ex_id = {
-      x_valid_ex_id, flu_valid_ex_id, load_valid_ex_id, store_valid_ex_id, fpu_valid_ex_id
+      x_valid_ex_id, flu_valid_ex_id, load_valid_ex_id, store_valid_ex_id, fpu_valid_ex_id // TODO add for uncorrectable here
     };
   end else if (CVA6ExtendCfg.EnableAccelerator) begin
     assign trans_id_ex_id = {
@@ -858,6 +862,7 @@ module cva6
       .dcache_req_ports_o      (dcache_req_ports_ex_cache),
       .dcache_wbuffer_empty_i  (dcache_commit_wbuffer_empty),
       .dcache_wbuffer_not_ni_i (dcache_commit_wbuffer_not_ni),
+      .dcache_uncorrectable_ex_i  (dcache_uncorrectable_ex),
       // PMP
       .pmpcfg_i                (pmpcfg),
       .pmpaddr_i               (pmpaddr),
@@ -996,8 +1001,6 @@ module cva6
       .pmpcfg_o                (pmpcfg),
       .pmpaddr_o               (pmpaddr),
       .mcountinhibit_o         (mcountinhibit_csr_perf),
-      .dcache_bitflip_addr_i   (dcache_bitflip_addr_n),
-      .dcache_bitflip_addr_o   (dcache_bitflip_addr_e),
       .dcache_counter_i         (dcache_counters),
       .debug_req_i,
       .ipi_i,
@@ -1274,9 +1277,7 @@ module cva6
         // memory side
         .axi_req_o         (noc_req_o),
         .axi_resp_i        (noc_resp_i), 
-
-        .dcache_bitflip_addr_i(dcache_bitflip_addr_e),
-        .dcache_bitflip_addr_o(dcache_bitflip_addr_n), 
+        .dcache_uncorrectable_ex_o(dcache_uncorrectable_ex),
         .dcache_counters_o(dcache_counters)
     );
     assign dcache_commit_wbuffer_not_ni = 1'b1;

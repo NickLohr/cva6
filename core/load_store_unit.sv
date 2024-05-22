@@ -122,6 +122,7 @@ module load_store_unit
     input  logic                                   dcache_wbuffer_empty_i,
     // TO_BE_COMPLETED - TO_BE_COMPLETED
     input  logic                                   dcache_wbuffer_not_ni_i,
+    input exception_t                              dcache_uncorrectable_ex_i,
     // AMO request - CACHE
     output amo_req_t                               amo_req_o,
     // AMO response - CACHE
@@ -341,7 +342,8 @@ module load_store_unit
     end
   end
 
-
+  exception_t ex_od;
+  assign ld_ex = (dcache_uncorrectable_ex_i.valid==1'b1 && ex_od.valid==1'b0) ? dcache_uncorrectable_ex_i: ex_od; //;
   logic store_buffer_empty;
   // ------------------
   // Store Unit
@@ -401,7 +403,7 @@ module load_store_unit
       .valid_o              (ld_valid),
       .trans_id_o           (ld_trans_id),
       .result_o             (ld_result),
-      .ex_o                 (ld_ex),
+      .ex_o                 (ex_od),
       // MMU port
       .translation_req_o    (ld_translation_req),
       .vaddr_o              (ld_vaddr),

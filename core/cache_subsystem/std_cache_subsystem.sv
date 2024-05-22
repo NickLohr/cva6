@@ -59,10 +59,8 @@ module std_cache_subsystem
     // memory side
     output axi_req_t axi_req_o,
     input axi_rsp_t axi_resp_i, 
-
-    input logic [ariane_pkg::DCACHE_INDEX_WIDTH-1:0] dcache_bitflip_addr_i,
-    output logic [ariane_pkg::DCACHE_INDEX_WIDTH-1:0] dcache_bitflip_addr_o,
-    output logic [6-1:0] dcache_counters_o
+    output exception_t dcache_uncorrectable_ex_o,
+    output logic [6-1:0] dcache_counters_o    
 );
 
   assign wbuffer_empty_o = 1'b1;
@@ -127,8 +125,7 @@ module std_cache_subsystem
       .axi_data_i  (axi_resp_data),
       .req_ports_i (dcache_req_ports_i),
       .req_ports_o (dcache_req_ports_o),
-      .bitflip_addr_i(dcache_bitflip_addr_i), 
-      .bitflip_addr_o(dcache_bitflip_addr_o),
+      .uncorrectable_ex_o(dcache_uncorrectable_ex_o),
       .counters_o(dcache_counters_o),
       .amo_req_i,
       .amo_resp_o

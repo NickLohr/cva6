@@ -400,6 +400,7 @@ package riscv;
   localparam logic [XLEN-1:0] VIRTUAL_INSTRUCTION = 22;  // virtual instruction
   localparam logic [XLEN-1:0] STORE_GUEST_PAGE_FAULT = 23;  // Store guest-page fault
   localparam logic [XLEN-1:0] DEBUG_REQUEST = 24;  // Debug request
+  localparam logic [XLEN-1:0] DCACHE_DOUBLE_BITFLIP = 25;
 
   localparam int unsigned IRQ_S_SOFT = 1;
   localparam int unsigned IRQ_VS_SOFT = 2;
@@ -643,7 +644,6 @@ package riscv;
     // Cache Control (platform specifc)
     CSR_DCACHE           = 12'h7C1,
     CSR_ICACHE           = 12'h7C0,
-    CSR_DCACHE_BITFLIP    = 12'h7C5,
     CSR_DCACHE_COUNTER1   = 12'h7C6, // TODO rename maybe
     CSR_DCACHE_COUNTER2   = 12'h7C7,
     CSR_DCACHE_COUNTER3   = 12'h7C8,

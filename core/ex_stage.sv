@@ -199,6 +199,7 @@ module ex_stage
     input  logic                                                        dcache_wbuffer_empty_i,
     // TO_BE_COMPLETED - CACHE
     input  logic                                                        dcache_wbuffer_not_ni_i,
+    input exception_t                                                   dcache_uncorrectable_ex_i,
     // AMO request - CACHE
     output amo_req_t                                                    amo_req_o,
     // AMO response - CACHE
@@ -453,6 +454,7 @@ module ex_stage
       .dcache_req_ports_o,
       .dcache_wbuffer_empty_i,
       .dcache_wbuffer_not_ni_i,
+      .dcache_uncorrectable_ex_i,
       .amo_valid_commit_i,
       .amo_req_o,
       .amo_resp_i,
