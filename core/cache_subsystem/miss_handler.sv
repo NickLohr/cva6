@@ -65,7 +65,8 @@ module miss_handler
     output cache_line_t data_o,
     output cl_be_t be_o,
     input cache_line_t [DCACHE_SET_ASSOC-1:0] data_i,
-    output logic we_o
+    output logic we_o,
+    output logic write_back_o
 );
 
   // Three MSHR ports + AMO port
@@ -143,6 +144,9 @@ module miss_handler
   // Busy signals
   logic bypass_axi_busy, miss_axi_busy;
   assign busy_o = bypass_axi_busy | miss_axi_busy | (state_q != IDLE);
+
+
+  assign write_back_o = state_q == WB_CACHELINE_FLUSH | state_q == WB_CACHELINE_MISS;
 
   // ------------------------------
   // Cache Management

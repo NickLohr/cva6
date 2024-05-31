@@ -99,6 +99,7 @@ module std_nbdcache
   logic                                                         miss_handler_busy;
   assign busy_o = |busy | miss_handler_busy;
 
+  logic write_back;
   // ------------------
   // Cache Controller
   // ------------------
@@ -173,6 +174,7 @@ module std_nbdcache
       .be_o                 (be[0]),
       .data_o               (wdata[0]),
       .we_o                 (we[0]),
+      .write_back_o         (write_back),
       .axi_bypass_o,
       .axi_bypass_i,
       .axi_data_o,
@@ -279,6 +281,7 @@ module std_nbdcache
       .wdata_dirty_o(dirty_wdata),
       .uncorrectable_ex_o(uncorrectable_ex_o),
       .counters_o(counters_o),
+      .write_back_i(write_back),
       .*
   );
 

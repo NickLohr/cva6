@@ -56,7 +56,8 @@ module tag_cmp
     output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram_o,
     output vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] wdata_dirty_o,
     output exception_t uncorrectable_ex_o,
-    output logic [6-1:0] counters_o
+    output logic [6-1:0] counters_o,
+    input logic write_back_i
 );
 
   vldrty_t [DCACHE_SET_ASSOC-1:0] dirty_rdata;
@@ -102,14 +103,17 @@ module tag_cmp
   logic [5:0] correctable;
   logic [5:0] uncorrectable;
 
-
-  //Exception
-  logic exception_active_q, exception_active_d;
-
+  // READ: 00
+  // WRITE: 01
+  // SCRUBBER: 10
+  // WB: 11
+  logic[1:0] src_ex;
 
   assign uncorrectable_ex_o.cause = riscv::DCACHE_DOUBLE_BITFLIP;
   assign uncorrectable_ex_o.valid = |uncorrectable;
-  assign uncorrectable_ex_o.tval = addr_o; // TODO not addr_o but previous addr
+  // TODO replace uncorrectable with the right bits
+  assign uncorrectable_ex_o.tval = {uncorrectable, src_ex, addr_o}; // TODO not addr_o but previous addr
+
 
   
   //be
@@ -312,7 +316,7 @@ module tag_cmp
 
   //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
   logic [5:0] correctable;
-  logic [5:0] uncorrectable; logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
+  logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
     logic [DCACHE_LINE_WIDTH_SRAM-1:0] input_buffer_data;
     logic [DCACHE_LINE_WIDTH-1:0] input_buffer_data_full;
 
@@ -542,7 +546,6 @@ module tag_cmp
       input_buffer_q <= '0;
       be_buffer_q    <= '0;
       req_buffer_q    <= '0;
-      exception_active_q <= exception_active_d;
     end else begin
       id_q <= id_d;
       add_buffer_q   <= add_buffer_d;
@@ -550,7 +553,6 @@ module tag_cmp
       input_buffer_q <= input_buffer_d;
       be_buffer_q    <= be_buffer_d;
       req_buffer_q   <= req_buffer_d;
-      exception_active_q <= exception_active_d;
 
      //if (be_valid_dirty_ram!='0 && we_o) begin
       //  $display(1, "BE: %x, DATA: %x, STATE=%x, LOADED: %x", be_valid_dirty_ram_o, wdata_dirty_o, store_state_q, dirty_rdata_i);
@@ -559,6 +561,7 @@ module tag_cmp
   end
   
 
+
   
   assign correctable[0] = err_scrub[0];
   assign uncorrectable[0] = err_scrub[1];
@@ -566,12 +569,15 @@ module tag_cmp
 
 
   always_comb begin
+    src_ex = 2'b00;
+
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
-        if (err_tag[i][0] && rdata_o[i].valid) begin
+        if (err_tag[i][0] && rdata_o[i].valid) begin // TODO change to rdata_i
           correctable[1] = 1'b1;
         end
         if (err_tag[i][1] && rdata_o[i].valid) begin
           uncorrectable[1] = 1'b1;
+          src_ex = 2'b00;
         end
         for (int unsigned j = 0; j < SECDEC_DIVISIONS_DATA;j++) begin
           if (err_data[i][j][0] && rdata_o[i].valid) begin
@@ -579,6 +585,8 @@ module tag_cmp
           end
           if (err_data[i][j][1] && rdata_o[i].valid) begin
             uncorrectable[2] = 1'b1;
+            src_ex = 2'b00;
+
           end
         end
 
@@ -595,12 +603,23 @@ module tag_cmp
     for (int unsigned j = 0; j<SECDEC_DIVISIONS_DATA;j++) begin
       if (err_input_buffer[j][0]) begin
         correctable[4] = 1'b1;
+
       end
       if (err_input_buffer[j][1]) begin
         uncorrectable[4] = 1'b1;
+        src_ex = (write_back_i) ? 2'b11 : 2'b01;
+
       end
       
     end
+    if (err_input_tag[1])begin
+      src_ex = (write_back_i) ? 2'b11 : 2'b01;
+
+    end
+    if (err_scrub[1])begin
+      src_ex = 2'b10;
+    end
+
   end
 
   assign correctable[5] = err_input_tag[0];
