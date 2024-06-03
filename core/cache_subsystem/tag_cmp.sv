@@ -315,7 +315,7 @@ module tag_cmp
 
 
   //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
-  logic [5:0] correctable;
+  //logic [5:0] correctable;
   logic [DCACHE_TAG_WIDTH_SRAM-1:0] input_buffer_tag;
     logic [DCACHE_LINE_WIDTH_SRAM-1:0] input_buffer_data;
     logic [DCACHE_LINE_WIDTH-1:0] input_buffer_data_full;
@@ -486,18 +486,17 @@ module tag_cmp
 
   logic [1:0] err_scrub; 
   if (SECDEC_ENABLED) begin
+      logic [DCACHE_SET_ASSOC-1:0][1:0] ecc_err;
+      cache_line_SRAM_t [DCACHE_SET_ASSOC-1:0] ecc_in, ecc_out;
 
-      
+
+
       ecc_scrubber_cache #(
         .BankSize       ( 2**(DCACHE_INDEX_WIDTH-DCACHE_BYTE_OFFSET)       ), 
-        .UseExternalECC ( 0              ),
-        .WITH_VALID(1),
+        .UseExternalECC ( 1              ),
+        .DataWidth(1),            //Using external, so does not matter
+        .ProtWidth(1),
         .Assoc(DCACHE_SET_ASSOC),
-        .TagWidth(DCACHE_TAG_WIDTH),
-        .BlockWidth(SECDEC_BLOCK_SIZE),
-        .BlockWidthECC(SECDEC_BLOCK_SIZE_ECC),
-        .DataDivisions(SECDEC_DIVISIONS_DATA),
-        .be_t(std_cache_pkg::cl_be_SRAM_t),
         .line_t(std_cache_pkg::cache_line_SRAM_t)
       ) i_scrubber (
         .clk_i,
@@ -512,21 +511,32 @@ module tag_cmp
         .intc_add_i      ( addr[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET]         ),
         .intc_wdata_i    ( wdata_scrub       ),
         .intc_rdata_o    ( rdata       ),
-        .intc_be_i 	  (be),
 
         .bank_req_o      ( req_o   ),
         .bank_we_o       (  we_o   ),
         .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
         .bank_wdata_o    ( wdata_o),
         .bank_rdata_i    ( rdata_i ),
-        .bank_be_o ( be_o),
 
 
 
-        .ecc_err_i('1),
-        .ecc_in_i('1),
-        .ecc_out_o()
+        .ecc_err_i(ecc_err),
+        .ecc_in_i(ecc_in),
+        .ecc_out_o(ecc_out)
       );
+
+      ecc_external #(
+        .DIVISIONS(SECDEC_DIVISIONS_DATA),
+        .ASSOC(DCACHE_SET_ASSOC),
+        .SIZE(DCACHE_LINE_WIDTH),
+        .TAG_WIDTH(DCACHE_TAG_WIDTH)
+      ) ecc_external_scrubber(
+        .data_i(ecc_out),
+        .data_o(ecc_in),
+        .err_o(ecc_err)
+      );
+      // TODO fix!!!!
+      assign be_o = be;
 
   end else begin
     assign req_o = req;
@@ -570,7 +580,10 @@ module tag_cmp
 
   always_comb begin
     src_ex = 2'b00;
-
+    correctable[1] = 1'b0; 
+    correctable[2] = 1'b0; 
+    correctable[3] = 1'b0; 
+    correctable[4] = 1'b0; 
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
         if (err_tag[i][0] && rdata_o[i].valid) begin // TODO change to rdata_i
           correctable[1] = 1'b1;
@@ -657,25 +670,5 @@ module tag_cmp
   end
 
 
-
-
-  /*
-  ecc_manager #(
-    .NumBanks(6),
-    .ecc_mgr_req_t( reg_bus_req_t), // need to get from above
-    .ecc_mgr_rsp_t(reg_bus_rsp_t)
-  ) ecc_manager_errors(
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-
-    .ecc_mgr_req_i('1),
-    .ecc_mgr_rsp_o(),
-
-    .bank_faults_i('0),
-    .scrub_fix_i(correctable),
-    .scrub_uncorrectable_i(uncorrectable),
-    .scrub_trigger_o(),
-    .test_write_mask_no()
-  );*/
 
 endmodule
