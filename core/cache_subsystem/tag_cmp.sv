@@ -68,7 +68,6 @@ module tag_cmp
   vldrty_ECC_t [DCACHE_SET_ASSOC-1:0] be_valid_dirty_ram2;
   vldrty_t [DCACHE_SET_ASSOC-1:0] wdata_dirty2;
 
-  //assign rdata_o = rdata_i;
   typedef enum logic { NORMAL, LOAD_AND_STORE } store_state_e;
   store_state_e store_state_d, store_state_q;
 
@@ -95,8 +94,8 @@ module tag_cmp
   l_data_SRAM_t input_buffer_d, input_buffer_q;
 
   //rdata
-  l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata;
-  logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded;
+  l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata, rdata_iv;
+  logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded; // TODO remove
 
 
   //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
@@ -154,12 +153,14 @@ module tag_cmp
     assign be_valid_dirty_ram[i].dirty = be_o.vldrty[i].dirty;
 
 
-    assign wdata_dirty[i].dirty              = store_state_q == NORMAL ? wdata.dirty : input_buffer_q.dirty;;
-    assign wdata_dirty[i].valid              = store_state_q == NORMAL ? wdata.valid : input_buffer_q.valid;;
+    assign wdata_dirty[i].dirty        = store_state_q == NORMAL ? wdata.dirty : input_buffer_q.dirty;;
+    assign wdata_dirty[i].valid        = store_state_q == NORMAL ? wdata.valid : input_buffer_q.valid;;
 
 
-    assign rdata_o[i].dirty          = dirty_rdata[i].dirty;
-    assign rdata_o[i].valid          = dirty_rdata[i].valid;
+    assign rdata_iv[i].dirty           = dirty_rdata[i].dirty;
+    assign rdata_iv[i].valid           = dirty_rdata[i].valid;
+    assign rdata_iv[i].data            = rdata_i[i].data;
+    assign rdata_iv[i].tag             = rdata_i[i].tag;
         
 
 
@@ -238,6 +239,12 @@ module tag_cmp
       end
 
     end
+    for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
+      assign rdata_o[j].valid = rdata[j].valid;
+      assign rdata_o[j].dirty = rdata[j].dirty;
+    end
+
+
     // write
 
 
@@ -375,7 +382,7 @@ module tag_cmp
   for (genvar j = 0; j < DCACHE_SET_ASSOC; j++) begin : tag_cmp
     assign tag_xor[j] = sel_tag_SRAM ^ rdata_i[j].tag;
 
-    assign hit_way_o[j] = ((tag_xor[j] & (tag_xor[j]-1))==0) ? rdata_o[j].valid : 1'b0; //TODO make rdata_i, 
+    assign hit_way_o[j] = ((tag_xor[j] & (tag_xor[j]-1))==0) ? rdata_iv[j].valid : 1'b0; 
   end
 
 
@@ -516,13 +523,13 @@ module tag_cmp
         .bank_we_o       (  we_o   ),
         .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
         .bank_wdata_o    ( wdata_o),
-        .bank_rdata_i    ( rdata_i ),
+        .bank_rdata_i    ( rdata_iv ),
 
 
 
         .ecc_err_i(ecc_err),
         .ecc_in_i(ecc_in),
-        .ecc_out_o(ecc_out)
+        .ecc_out_o(ecc_out) // TODO add valid dirty error here too
       );
 
       ecc_external #(
@@ -536,14 +543,18 @@ module tag_cmp
         .err_o(ecc_err)
       );
       // TODO fix!!!!
-      assign be_o = be;
+      //assign be_o = be;
+      assign be_o.tag = (|req === 1'b0)? '1 : be.tag;
+      assign be_o.data = (|req === 1'b0)? '1 : be.data;
+      assign be_o.vldrty = be.vldrty;
+
 
   end else begin
     assign req_o = req;
     assign we_o = we;
     assign addr_o = addr;
     assign wdata_o = wdata_scrub;
-    assign rdata = rdata_i;
+    assign rdata = rdata_iv;
     assign be_o = be;
   end
 
@@ -585,7 +596,7 @@ module tag_cmp
     correctable[3] = 1'b0; 
     correctable[4] = 1'b0; 
     for (int unsigned i = 0; i<DCACHE_SET_ASSOC; i++)begin
-        if (err_tag[i][0] && rdata_o[i].valid) begin // TODO change to rdata_i
+        if (err_tag[i][0] && rdata_o[i].valid) begin 
           correctable[1] = 1'b1;
         end
         if (err_tag[i][1] && rdata_o[i].valid) begin

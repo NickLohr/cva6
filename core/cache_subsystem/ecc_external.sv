@@ -41,7 +41,8 @@ module ecc_external
     assign data_o[i].valid = data_i[i].valid;
 
     // TODO make errors correct
-    assign err_o[i] = data_i[i].valid ? (|err_data[i]) | err_tag[i] : '0;
+    assign err_o[i] = data_i[i].valid ? (|(err_data[i])) | err_tag[i] : '0;
+    //assign err_o[i] = |(err_data[i]) | err_tag[i];
   end
   
 
