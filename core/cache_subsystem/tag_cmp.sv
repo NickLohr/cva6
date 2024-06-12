@@ -95,7 +95,6 @@ module tag_cmp
 
   //rdata
   l_data_SRAM_t [DCACHE_SET_ASSOC-1:0] rdata, rdata_iv;
-  logic [DCACHE_SET_ASSOC-1:0][DCACHE_LINE_WIDTH-1:0] loaded; // TODO remove
 
 
   //  1) scrubber 2) read tag 3) read data 4) read vldrty 5) buffer data 6) buffer tag
@@ -110,7 +109,6 @@ module tag_cmp
 
   assign uncorrectable_ex_o.cause = riscv::DCACHE_DOUBLE_BITFLIP;
   assign uncorrectable_ex_o.valid = |uncorrectable;
-  // TODO replace uncorrectable with the right bits
   assign uncorrectable_ex_o.tval = {uncorrectable, src_ex, addr_o}; // TODO not addr_o but previous addr
 
 
@@ -169,7 +167,7 @@ module tag_cmp
   assign wdata_dirty2 = (be_valid_dirty_ram& wdata_dirty) | (~be_valid_dirty_ram& dirty_rdata);
   assign dirty_rdata2 = dirty_rdata_i;
   for (genvar i = 0; i<DCACHE_SET_ASSOC; i++)begin
-      assign be_valid_dirty_ram_o[i] = store_state_q==NORMAL ? (be_valid_dirty_ram[i]=='0 ? '0 : '1) : '1 ; // TODO check if makes sense
+      assign be_valid_dirty_ram_o[i] = store_state_q==NORMAL ? (be_valid_dirty_ram[i]=='0 ? '0 : '1) : '1 ; 
 
   end
 
@@ -209,12 +207,11 @@ module tag_cmp
         .SIZE(DCACHE_LINE_WIDTH)
       ) ecc_rtag_dec_wrap (
         .data_i(rdata[i].data),
-        .data_o(loaded[i]),
+        .data_o(rdata_o[i].data),
         .err_o(err_data[i])
       );
 
     
-      assign rdata_o[i].data   = loaded[i];
     end
 
     always_comb begin
@@ -421,22 +418,16 @@ module tag_cmp
               if (be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
                 be.data[j] = 1'b1;
               end
-              if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] !='0 && be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '1)  & we_i[i]) begin 
+              if (SECDEC_ENABLED && ((|req_i[i]) & !(be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] ==='0 || be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] === '1)  & we_i[i])) begin 
                 store_state_d = LOAD_AND_STORE; // write requests which need another cycle
+                //$warning(1,"RMW enabled %x",be_i[i].data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8]);
                 we = 1'b0;
                 gnt_o[i] = 1'b0;
+                break;
               end
           end
 
-        
-          // & (be_i[i].vldrty !='0 && be_i[i].vldrty != '1) 
-          for (int unsigned j=0; j<DCACHE_SET_ASSOC; j++)begin
-            if (SECDEC_ENABLED && (|req_i[i]) & (be_i[i].vldrty[j] !='0 && be_i[i].vldrty[j] != '1)  & we_i[i]) begin 
-              store_state_d = LOAD_AND_STORE; // write requests which need another cycle
-              we = 1'b0;
-              gnt_o[i] = 1'b0;
-            end
-          end
+
 
         end
         else begin
@@ -462,10 +453,10 @@ module tag_cmp
       be.vldrty = be_buffer_q.vldrty;
 
       for (int unsigned j=0; j<SECDEC_DIVISIONS_DATA; j++)begin
-            if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
-              be.data[j] = '1;
-            end
+        if (be_buffer_q.data[j*SECDEC_BLOCK_SIZE/8+:SECDEC_BLOCK_SIZE/8] != '0)begin
+          be.data[j] = '1;
         end
+      end
       
       req = req_buffer_q;
 
@@ -527,9 +518,9 @@ module tag_cmp
 
 
 
-        .ecc_err_i(ecc_err),
+        .ecc_err_i(ecc_err | err_vldrty),
         .ecc_in_i(ecc_in),
-        .ecc_out_o(ecc_out) // TODO add valid dirty error here too
+        .ecc_out_o(ecc_out) 
       );
 
       ecc_external #(
@@ -542,8 +533,7 @@ module tag_cmp
         .data_o(ecc_in),
         .err_o(ecc_err)
       );
-      // TODO fix!!!!
-      //assign be_o = be;
+
       assign be_o.tag = (|req === 1'b0)? '1 : be.tag;
       assign be_o.data = (|req === 1'b0)? '1 : be.data;
       assign be_o.vldrty = be.vldrty;
@@ -648,37 +638,9 @@ module tag_cmp
 
   assign correctable[5] = err_input_tag[0];
   assign uncorrectable[5] = err_input_tag[1];
-  assign counters_o = correctable; // TODO make also uncorrectables
+  assign counters_o = correctable; 
 
-  // counters
-  logic [6-1:0][32-1:0] correctable_counters_d,correctable_counters_q;
-  logic [6-1:0][32-1:0] uncorrectable_counters_d,uncorrectable_counters_q;
 
-  always_comb begin
-    correctable_counters_d = correctable_counters_q;
-    uncorrectable_counters_d = uncorrectable_counters_q;
-
-    for (int i =0; i<6; ++i)begin
-      if (correctable[i]) begin
-        correctable_counters_d[i] = correctable_counters_q[i]+1;
-      end
-      if (uncorrectable[i]) begin
-        uncorrectable_counters_d[i] = uncorrectable_counters_q[i]+1;
-      end
-    end
-
-  end
-
-  //assign error_inc_o = |uncorrectable; // TODO add previous step and check if it has been read in register
-  always_ff @(posedge clk_i or negedge rst_ni) begin : proc_counters_un_correctable
-    if(~rst_ni) begin
-      correctable_counters_q <= 0;
-      uncorrectable_counters_q <= 0;
-    end else begin
-      correctable_counters_q <= correctable_counters_d;
-      uncorrectable_counters_q <= uncorrectable_counters_d;
-    end
-  end
 
 
 
