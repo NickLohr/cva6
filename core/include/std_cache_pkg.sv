@@ -78,7 +78,6 @@ package std_cache_pkg;
   } cache_line_t;
 
 
-  // TODO nicely
   typedef struct packed {
     logic [ariane_pkg::DCACHE_TAG_WIDTH_SRAM-1:0]        tag;    // tag array
     logic [ariane_pkg::DCACHE_LINE_WIDTH_SRAM-1:0]       data;   // data array
