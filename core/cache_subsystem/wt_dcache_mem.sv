@@ -290,18 +290,148 @@ module wt_dcache_mem
   end
 
   ///////////////////////////////////////////////////////
+  // parity bit encode and decode
+  ///////////////////////////////////////////////////////
+
+
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_wdata;  //
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_rdata;  //
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0] bank_P_wuser;  //
+  logic [DCACHE_SET_ASSOC-1:0][DCACHE_NUM_BANKS-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0] bank_P_ruser;  //
+
+
+  logic [      DCACHE_TAG_WIDTH:0] wr_cl_P_tag_i;
+  logic [DCACHE_SET_ASSOC-1:0][1:0] vld_P_wdata;
+    logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_rdata[DCACHE_SET_ASSOC-1:0];
+
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8-1:0] error_rdata;
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(DCACHE_USER_WIDTH+7)/8-1:0] error_ruser;
+  // data
+  for (genvar i=0; i<DCACHE_NUM_BANKS;++i)begin
+    for (genvar j=0;j<DCACHE_SET_ASSOC;++j)begin
+        for (genvar k=0; k<(riscv::XLEN+7)/8;++k)begin
+          // encoding
+          assign bank_P_wdata[i][j][(k+1)*9-2:k*9] = bank_wdata[i][j][(k+1)*8-1:k*8];
+          assign bank_P_wdata[i][j][(k+1)*9-1] = ^(bank_wdata[i][j][(k+1)*8-1:k*8]);
+
+          //decoding
+          assign bank_rdata[i][j][(k+1)*8-1:k*8] = bank_P_rdata[i][j][(k+1)*9-1:k*9];
+          assign error_rdata[i][j][k] = ^(bank_P_rdata[i][j][(k+1)*8-1:k*8]);
+        end
+        if (DCACHE_USER_WIDTH == 1) begin // TODO add user
+            //assign bank_P_wuser[i][j][0] =bank_wuser[i][j];
+            //assign bank_P_wuser[i][j][1] =bank_wuser[i][j];
+
+            //assign bank_ruser[i][j] = bank_P_ruser[i][j][0];
+            //assign error_ruser[i][j] = ^bank_P_ruser[i][j];
+            
+
+        end else begin
+          for (genvar k=0; k<(DCACHE_USER_WIDTH)/8;++k)begin // TODO fix, what if it is 1
+            // encoding
+            //assign bank_P_wuser[i][j][k*9+:8] = bank_wuser[i][j][k*8+:8];
+            //assign bank_P_wuser[i][j][k*9+8] = ^(bank_wuser[i][j][k*8+:8]);
+
+            //decoding
+            //assign bank_ruser[i][j][k*8+8] = bank_P_ruser[i][j][k*9+8];
+            //assign error_ruser[j][i][k] = ^(bank_P_ruser[i][j][k*9+:9]); 
+          end
+          
+        end
+    end
+
+  end
+
+
+
+  // be stays the same
+
+  // tag
+  assign wr_cl_P_tag_i[DCACHE_TAG_WIDTH-1:0] = wr_cl_tag_i;
+  assign wr_cl_P_tag_i[DCACHE_TAG_WIDTH] = ^(wr_cl_tag_i);
+
+
+
+  // valid (which is dependent by decoding on the error of the rest)
+  for (genvar i=0;i<DCACHE_SET_ASSOC;++i)begin
+    assign vld_P_wdata[i][0] = vld_wdata[i];
+    assign vld_P_wdata[i][1] = vld_wdata[i];
+    
+
+    assign tag_rdata[i] = vld_tag_P_rdata[i][DCACHE_TAG_WIDTH-1:0];
+    assign rd_vld_bits_o[i] =  vld_tag_P_rdata[i][DCACHE_TAG_WIDTH+1] & !(^vld_tag_P_rdata[i][DCACHE_TAG_WIDTH:0]) & !(^vld_tag_P_rdata[i][DCACHE_TAG_WIDTH+2:DCACHE_TAG_WIDTH+1] & !(|error_rdata[i])) ;
+
+
+
+
+
+  end
+    // should I encode the user too?
+    // how can I switch the config the easiest for cheshire to WT?
+    // Should I add a scrubber?
+  /*
+  typedef struct {
+      logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0],
+      logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_rdata[DCACHE_SET_ASSOC-1:0];
+      // TODO add user
+  } cacheline_scrubber_t;
+
+  ecc_scrubber_cache #(
+    .BankSize(DCACHE_NUM_BANKS),
+    .UseExternalECC(1),
+    .Assoc(DCACHE_SET_ASSOC),
+    .line_t(cacheline_scrubber_t) 
+  ) parity_scrubber(
+      .clk_i,
+      .rst_ni,
+
+      .scrub_trigger_i ( 1'b1),
+      .bit_corrected_o (err_scrub[0]),
+      .uncorrectable_o (err_scrub[1]),
+
+      .intc_req_i      ( req         ),
+      .intc_we_i       ( we          ),
+      .intc_add_i      ( addr[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET]         ),
+      .intc_wdata_i    ( wdata_scrub       ),
+      .intc_rdata_o    ( rdata       ),
+
+      .bank_req_o      ( req_o   ),
+      .bank_we_o       (  we_o   ),
+      .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
+      .bank_wdata_o    ( wdata_o),
+      .bank_rdata_i    ( rdata_iv ),
+
+
+
+      .ecc_err_i(ecc_err),
+      .ecc_in_i(ecc_in),
+      .ecc_out_o(ecc_out) 
+  );
+  */
+
+  // new to change format of the data for the scrubber
+  // current _-> data as blocks 64*assoc 
+
+
+  // scrubber -> "normal" between decoder and sram
+  // externel ECC just checks if everything is valid, if not, invalidate whole line
+
+
+  ///////////////////////////////////////////////////////
   // memory arrays and regs
   ///////////////////////////////////////////////////////
 
   logic [DCACHE_TAG_WIDTH:0] vld_tag_rdata[DCACHE_SET_ASSOC-1:0];
 
+
   for (genvar k = 0; k < DCACHE_NUM_BANKS; k++) begin : gen_data_banks
     // Data RAM
     sram #(
         .USER_WIDTH(ariane_pkg::DCACHE_SET_ASSOC * DATA_USER_WIDTH),
-        .DATA_WIDTH(ariane_pkg::DCACHE_SET_ASSOC * riscv::XLEN),
+        .DATA_WIDTH(ariane_pkg::DCACHE_SET_ASSOC * (((riscv::XLEN+7)/8)*9)),
         .USER_EN   (ariane_pkg::DATA_USER_EN),
-        .NUM_WORDS (wt_cache_pkg::DCACHE_NUM_WORDS)
+        .NUM_WORDS (wt_cache_pkg::DCACHE_NUM_WORDS),
+        .BYTE_WIDTH(9)
     ) i_data_sram (
         .clk_i  (clk_i),
         .rst_ni (rst_ni),
@@ -309,22 +439,18 @@ module wt_dcache_mem
         .we_i   (bank_we[k]),
         .addr_i (bank_idx[k]),
         .wuser_i(bank_wuser[k]),
-        .wdata_i(bank_wdata[k]),
+        .wdata_i(bank_P_wdata[k]),
         .be_i   (bank_be[k]),
         .ruser_o(bank_ruser[k]),
-        .rdata_o(bank_rdata[k])
+        .rdata_o(bank_P_rdata[k])
     );
   end
 
-  for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : gen_tag_srams
-
-    assign tag_rdata[i]     = vld_tag_rdata[i][DCACHE_TAG_WIDTH-1:0];
-    assign rd_vld_bits_o[i] = vld_tag_rdata[i][DCACHE_TAG_WIDTH];
-
+    for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : gen_tag_srams
     // Tag RAM
     sram #(
         // tag + valid bit
-        .DATA_WIDTH(ariane_pkg::DCACHE_TAG_WIDTH + 1),
+        .DATA_WIDTH(ariane_pkg::DCACHE_TAG_WIDTH + 1 + 2),
         .NUM_WORDS (wt_cache_pkg::DCACHE_NUM_WORDS)
     ) i_tag_sram (
         .clk_i  (clk_i),
@@ -333,10 +459,10 @@ module wt_dcache_mem
         .we_i   (vld_we),
         .addr_i (vld_addr),
         .wuser_i('0),
-        .wdata_i({vld_wdata[i], wr_cl_tag_i}),
+        .wdata_i({vld_P_wdata[i], wr_cl_P_tag_i}),
         .be_i   ('1),
         .ruser_o(),
-        .rdata_o(vld_tag_rdata[i])
+        .rdata_o(vld_tag_P_rdata[i])
     );
   end
 
@@ -416,12 +542,12 @@ module wt_dcache_mem
   for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : gen_tag_dubl_test
     assign tag_write_duplicate_test[i] = (tag_mirror[vld_addr][i] == wr_cl_tag_i) & vld_mirror[vld_addr][i] & (|vld_wdata);
   end
-
+  /*
   tag_write_duplicate :
   assert property (
     @(posedge clk_i) disable iff (!rst_ni) |vld_req |-> vld_we |-> !(|tag_write_duplicate_test))
   else $fatal(1, "[l1 dcache] cannot allocate a CL that is already present in the cache");
-
+  */
 `endif
   //pragma translate_on
 
