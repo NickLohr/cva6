@@ -110,7 +110,7 @@ module wt_dcache_mem
   logic vld_we;  // valid bits write enable
   logic [DCACHE_SET_ASSOC-1:0] vld_wdata;  // valid bits to write
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_TAG_WIDTH-1:0]            tag_rdata;                    // these are the tags coming from the tagmem
-  logic [DCACHE_CL_IDX_WIDTH-1:0] vld_addr;  // valid bit
+  logic [DCACHE_CL_IDX_WIDTH-1:0] vld_addr, vld_addr_scr;  // valid bit
 
   logic [$clog2(NumPorts)-1:0] vld_sel_d, vld_sel_q;
 
@@ -294,8 +294,8 @@ module wt_dcache_mem
   ///////////////////////////////////////////////////////
 
 
-  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_wdata;  //
-  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_rdata;  //
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_wdata, bank_P_wdata_scr;  //
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8*9-1:0] bank_P_rdata, bank_P_rdata_scr;  //
   logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0] bank_P_wuser;  //
   logic [DCACHE_SET_ASSOC-1:0][DCACHE_NUM_BANKS-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0] bank_P_ruser;  //
 
@@ -303,6 +303,9 @@ module wt_dcache_mem
   logic [      DCACHE_TAG_WIDTH:0] wr_cl_P_tag_i;
   logic [DCACHE_SET_ASSOC-1:0][1:0] vld_P_wdata;
     logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_rdata[DCACHE_SET_ASSOC-1:0];
+    logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_wdata[DCACHE_SET_ASSOC-1:0];
+    logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_rdata_scr[DCACHE_SET_ASSOC-1:0];
+    logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_wdata_scr[DCACHE_SET_ASSOC-1:0];
 
   logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(riscv::XLEN+7)/8-1:0] error_rdata;
   logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][(DCACHE_USER_WIDTH+7)/8-1:0] error_ruser;
@@ -356,7 +359,8 @@ module wt_dcache_mem
   for (genvar i=0;i<DCACHE_SET_ASSOC;++i)begin
     assign vld_P_wdata[i][0] = vld_wdata[i];
     assign vld_P_wdata[i][1] = vld_wdata[i];
-    
+    assign vld_tag_P_wdata[i] = {vld_P_wdata[i], wr_cl_P_tag_i};
+
 
     assign tag_rdata[i] = vld_tag_P_rdata[i][DCACHE_TAG_WIDTH-1:0];
     assign rd_vld_bits_o[i] =  vld_tag_P_rdata[i][DCACHE_TAG_WIDTH+1] & !(^vld_tag_P_rdata[i][DCACHE_TAG_WIDTH:0]) & !(^vld_tag_P_rdata[i][DCACHE_TAG_WIDTH+2:DCACHE_TAG_WIDTH+1] & !(|error_rdata[i])) ;
@@ -369,37 +373,65 @@ module wt_dcache_mem
     // should I encode the user too?
     // how can I switch the config the easiest for cheshire to WT?
     // Should I add a scrubber?
-  /*
-  typedef struct {
-      logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0],
-      logic [DCACHE_TAG_WIDTH+2:0] vld_tag_P_rdata[DCACHE_SET_ASSOC-1:0];
+  
+  typedef struct packed{
+      logic [DCACHE_NUM_BANKS-1:0][((DCACHE_USER_WIDTH+7)/8)*9-1:0] data;
+      logic [DCACHE_TAG_WIDTH+2:0] vld_tag;
       // TODO add user
   } cacheline_scrubber_t;
 
+  cacheline_scrubber_t[DCACHE_SET_ASSOC-1:0] scrub_wdata_in, scrub_wdata_out; // TODO check if that is correct
+  cacheline_scrubber_t[DCACHE_SET_ASSOC-1:0] scrub_rdata_in, scrub_rdata_out;
+  cacheline_scrubber_t[DCACHE_SET_ASSOC-1:0] ecc_in, ecc_out;
+  for (genvar i = 0; i<DCACHE_SET_ASSOC; ++i)begin
+    for (genvar j = 0; j<DCACHE_NUM_BANKS; ++j)begin
+      assign scrub_rdata_in[i].data[j] = bank_P_rdata_scr[j][i]; 
+    end
+    
+    assign scrub_wdata_in[i].vld_tag = vld_tag_P_wdata[i];
+    assign vld_tag_P_wdata_scr[i] = scrub_wdata_out[i].vld_tag;
+    assign scrub_rdata_in[i].vld_tag = vld_tag_P_rdata_scr[i];
+  end
+
+  logic  [      DCACHE_SET_ASSOC-1:0][1:0] ecc_err;
+  
+  logic [DCACHE_SET_ASSOC-1:0] vld_req_scr;  // bit enable for valid regs
+  logic [DCACHE_TAG_WIDTH:0] vld_tag_rdata[DCACHE_SET_ASSOC-1:0];
+  logic [DCACHE_NUM_BANKS-1:0] bank_req_scr;
+  logic [DCACHE_NUM_BANKS-1:0]                                               bank_we_scr;
+  logic [DCACHE_NUM_BANKS-1:0][   DCACHE_SET_ASSOC-1:0][(riscv::XLEN/8)-1:0] bank_be_scr;
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_CL_IDX_WIDTH-1:0]                      bank_idx_scr;
+  logic [DCACHE_NUM_BANKS-1:0][DCACHE_SET_ASSOC-1:0][DCACHE_USER_WIDTH-1:0] bank_wuser_scr;
+    //
+
+
+  
+  // TODO add assoc for write
   ecc_scrubber_cache #(
-    .BankSize(DCACHE_NUM_BANKS),
+    .BankSize(2**DCACHE_CL_IDX_WIDTH),
     .UseExternalECC(1),
-    .Assoc(DCACHE_SET_ASSOC),
+    .Assoc(DCACHE_SET_ASSOC), 
+    .AssocW(DCACHE_SET_ASSOC), 
     .line_t(cacheline_scrubber_t) 
   ) parity_scrubber(
       .clk_i,
       .rst_ni,
 
       .scrub_trigger_i ( 1'b1),
-      .bit_corrected_o (err_scrub[0]),
-      .uncorrectable_o (err_scrub[1]),
+      .bit_corrected_o (),
+      .uncorrectable_o (), // TODO add counters too
 
-      .intc_req_i      ( req         ),
-      .intc_we_i       ( we          ),
-      .intc_add_i      ( addr[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET]         ),
-      .intc_wdata_i    ( wdata_scrub       ),
-      .intc_rdata_o    ( rdata       ),
+      .intc_req_i      ( vld_req         ),
+      .intc_we_i       ( vld_we          ),
+      .intc_add_i      ( vld_addr         ),
+      .intc_wdata_i    ( scrub_wdata_in       ),
+      .intc_rdata_o    ( scrub_rdata_out       ),
 
-      .bank_req_o      ( req_o   ),
-      .bank_we_o       (  we_o   ),
-      .bank_add_o      (  addr_o[DCACHE_INDEX_WIDTH-1:DCACHE_BYTE_OFFSET] ),
-      .bank_wdata_o    ( wdata_o),
-      .bank_rdata_i    ( rdata_iv ),
+      .bank_req_o      ( vld_req_scr   ),
+      .bank_we_o       ( vld_we_scr   ),
+      .bank_add_o      ( vld_addr_scr ),
+      .bank_wdata_o    ( scrub_wdata_out),
+      .bank_rdata_i    ( scrub_rdata_in),
 
 
 
@@ -407,7 +439,15 @@ module wt_dcache_mem
       .ecc_in_i(ecc_in),
       .ecc_out_o(ecc_out) 
   );
-  */
+  
+  for (genvar i = 0; i<DCACHE_SET_ASSOC; ++i) begin
+    assign ecc_err[i] = ((^ecc_out[i].data) | ^(ecc_out[i].vld_tag[DCACHE_TAG_WIDTH:0]) | (ecc_out[i].vld_tag[DCACHE_TAG_WIDTH+1] !=ecc_out[i].vld_tag[DCACHE_TAG_WIDTH+2]))&ecc_out[i].vld_tag[DCACHE_TAG_WIDTH+1];
+    assign ecc_in[i].vld_tag[DCACHE_TAG_WIDTH+1] = (ecc_err[i])? '0 : ecc_out[i].vld_tag[DCACHE_TAG_WIDTH+1];
+    assign ecc_in[i].vld_tag[DCACHE_TAG_WIDTH+2] = (ecc_err[i])? '0 : ecc_out[i].vld_tag[DCACHE_TAG_WIDTH+2];
+    assign ecc_in[i].vld_tag[DCACHE_TAG_WIDTH:0] =  ecc_out[i].vld_tag[DCACHE_TAG_WIDTH:0];
+  end
+  
+
 
   // new to change format of the data for the scrubber
   // current _-> data as blocks 64*assoc 
@@ -417,12 +457,26 @@ module wt_dcache_mem
   // externel ECC just checks if everything is valid, if not, invalidate whole line
 
 
+
+
   ///////////////////////////////////////////////////////
   // memory arrays and regs
   ///////////////////////////////////////////////////////
 
-  logic [DCACHE_TAG_WIDTH:0] vld_tag_rdata[DCACHE_SET_ASSOC-1:0];
 
+
+  assign bank_req_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '1 : bank_req;
+  assign bank_we_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '0 : bank_we;
+  assign bank_idx_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '{default: vld_addr_scr} : bank_idx;
+  assign bank_wuser_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '0 : bank_wuser;
+  assign bank_wdata_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '0 : bank_P_wdata;
+  assign bank_be_scr = (|bank_req === 1'b0 && |vld_req === 1'b0) ? '1 : bank_be;
+
+  //assign bank_ruser = bank_ruser_scr;
+  //assign scrub_rdata_in.user = bank_ruser_scr; // TODO
+
+  assign bank_P_rdata = bank_P_rdata_scr;
+  //assign scrub_rdata_in.data = bank_P_rdata_scr;
 
   for (genvar k = 0; k < DCACHE_NUM_BANKS; k++) begin : gen_data_banks
     // Data RAM
@@ -435,18 +489,18 @@ module wt_dcache_mem
     ) i_data_sram (
         .clk_i  (clk_i),
         .rst_ni (rst_ni),
-        .req_i  (bank_req[k]),
-        .we_i   (bank_we[k]),
-        .addr_i (bank_idx[k]),
-        .wuser_i(bank_wuser[k]),
-        .wdata_i(bank_P_wdata[k]),
-        .be_i   (bank_be[k]),
+        .req_i  (bank_req_scr[k]),
+        .we_i   (bank_we_scr[k]),
+        .addr_i (bank_idx_scr[k]),
+        .wuser_i(bank_wuser_scr[k]),
+        .wdata_i(bank_P_wdata_scr[k]),
+        .be_i   (bank_be_scr[k]),
         .ruser_o(bank_ruser[k]),
-        .rdata_o(bank_P_rdata[k])
+        .rdata_o(bank_P_rdata_scr[k])
     );
   end
 
-    for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : gen_tag_srams
+  for (genvar i = 0; i < DCACHE_SET_ASSOC; i++) begin : gen_tag_srams
     // Tag RAM
     sram #(
         // tag + valid bit
@@ -455,14 +509,14 @@ module wt_dcache_mem
     ) i_tag_sram (
         .clk_i  (clk_i),
         .rst_ni (rst_ni),
-        .req_i  (vld_req[i]),
-        .we_i   (vld_we),
-        .addr_i (vld_addr),
+        .req_i  (vld_req_scr[i]),
+        .we_i   (vld_we_scr),
+        .addr_i (vld_addr_scr),
         .wuser_i('0),
-        .wdata_i({vld_P_wdata[i], wr_cl_P_tag_i}),
+        .wdata_i(vld_tag_P_wdata_scr[i]),
         .be_i   ('1),
         .ruser_o(),
-        .rdata_o(vld_tag_P_rdata[i])
+        .rdata_o(vld_tag_P_rdata_scr[i])
     );
   end
 

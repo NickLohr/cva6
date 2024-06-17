@@ -18,6 +18,7 @@ module ecc_scrubber_cache #(
   parameter int unsigned DataWidth      = 39,
   parameter int unsigned ProtWidth      = 7,
   parameter int unsigned Assoc          = 1,
+  parameter int unsigned AssocW          = 1,
   parameter type          line_t        = logic [DataWidth-1:0]
 ) (
   input  logic                        clk_i,
@@ -31,14 +32,14 @@ module ecc_scrubber_cache #(
   input  logic [           Assoc-1:0] intc_req_i,
   input  logic                        intc_we_i,
   input  logic [$clog2(BankSize)-1:0] intc_add_i,
-  input  line_t                       intc_wdata_i,
+  input  line_t [         AssocW-1:0] intc_wdata_i,
   output line_t [          Assoc-1:0] intc_rdata_o,
 
   // Output directly to bank
   output logic [           Assoc-1:0] bank_req_o,
   output logic                        bank_we_o,
   output logic [$clog2(BankSize)-1:0] bank_add_o,
-  output line_t                       bank_wdata_o,
+  output line_t [         AssocW-1:0] bank_wdata_o,
   input  line_t [          Assoc-1:0] bank_rdata_i,
 
   // If using external ECC
@@ -105,7 +106,7 @@ module ecc_scrubber_cache #(
   always_comb begin
     for (int assoc=0; assoc<Assoc; ++assoc)begin
       if ((|ecc_err[assoc])===1'b1 )begin 
-        scrub_wdata = temp_scrub_wdata[assoc];
+        scrub_wdata = (AssocW==1)? temp_scrub_wdata[assoc]: temp_scrub_wdata;
         assoc_c = assoc;
         break;
       end
