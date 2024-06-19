@@ -129,6 +129,9 @@ module wt_axi_adapter
       .idx_o  (arb_idx)
   );
 
+  localparam longint __AXI_ADDR_PAD = longint'(unsigned'(CVA6Cfg.AxiAddrWidth)) - longint'(unsigned'(riscv::PLEN));
+
+
   // request side
   always_comb begin : p_axi_req
     // write channel
@@ -136,8 +139,8 @@ module wt_axi_adapter
     axi_wr_data[0]  = {(CVA6Cfg.AxiDataWidth/riscv::XLEN){dcache_data.data}};
     axi_wr_user[0]  = dcache_data.user;
     // Cast to AXI address width
-    if (CVA6Cfg.AxiAddrWidth > riscv::PLEN) begin
-      axi_wr_addr = ({{CVA6Cfg.AxiAddrWidth-riscv::PLEN{1'b0}}, dcache_data.paddr});
+    if ( __AXI_ADDR_PAD> 0) begin
+      axi_wr_addr = {{ __AXI_ADDR_PAD{1'b0}}, dcache_data.paddr};
     end else begin 
       axi_wr_addr =  dcache_data.paddr[CVA6Cfg.AxiAddrWidth-1:0];
     end
@@ -166,8 +169,8 @@ module wt_axi_adapter
     // arbiter mux
     if (arb_idx) begin
       // Cast to AXI address width
-      if (CVA6Cfg.AxiAddrWidth > riscv::PLEN) begin
-        axi_rd_addr = ({{CVA6Cfg.AxiAddrWidth-riscv::PLEN{1'b0}}, dcache_data.paddr});
+    if ( __AXI_ADDR_PAD> 0) begin
+        axi_rd_addr = {{__AXI_ADDR_PAD{1'b0}}, dcache_data.paddr};
       end else begin 
         axi_rd_addr =  dcache_data.paddr[CVA6Cfg.AxiAddrWidth-1:0];
       end
@@ -180,8 +183,8 @@ module wt_axi_adapter
     end else begin
       // Cast to AXI address width
 
-      if (CVA6Cfg.AxiAddrWidth > riscv::PLEN) begin
-        axi_rd_addr = ({{CVA6Cfg.AxiAddrWidth-riscv::PLEN{1'b0}}, icache_data.paddr});
+    if ( __AXI_ADDR_PAD> 0) begin
+        axi_rd_addr = {{__AXI_ADDR_PAD{1'b0}}, icache_data.paddr};
       end else begin 
         axi_rd_addr =  icache_data.paddr[CVA6Cfg.AxiAddrWidth-1:0];
       end
